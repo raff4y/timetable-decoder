@@ -1,10 +1,9 @@
 # Uploaded / working timetable exports — these are other people's files,
-# not part of the app. The one sample the app fetches is kept below.
+# not part of the app.
 *.xlsx
 *.xls
 *.xlsm
 *.csv
-!EE Time Table (Fall 2026) v1.0.xlsx
 
 # OS / editor noise
 .DS_Store

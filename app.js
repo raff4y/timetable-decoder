@@ -23,7 +23,6 @@
   var $ = function (id) { return document.getElementById(id); };
   var fileInput = $('file-input');
   var dropzone = $('dropzone');
-  var loadSampleBtn = $('load-sample-btn');
   var uploadStatus = $('upload-status');
   var buildPanel = $('build-panel');
   var imagePanel = $('image-panel');
@@ -31,6 +30,7 @@
   var courseSearch = $('course-search');
   var searchResults = $('search-results');
   var quickAddInput = $('quick-add-input');
+  var quickAddExample = $('quick-add-example');
   var quickAddResolve = $('quick-add-resolve');
   var quickAddFeedback = $('quick-add-feedback');
   var selectedList = $('selected-list');
@@ -46,6 +46,8 @@
   var browseStats = $('browse-stats');
   var browseContent = $('browse-content');
   var browseFilter = $('browse-filter');
+  var browseJump = $('browse-jump');
+  var browseJumpLabel = $('browse-jump-label');
   var tabCourses = $('tab-courses');
   var tabTeachers = $('tab-teachers');
   var campusSelect = $('campus-select');
@@ -54,6 +56,7 @@
 
   var state = {
     meta: null,
+    examples: null,
     sections: [],
     selected: new Map(),
     colorAssignments: new Map(),
@@ -747,6 +750,47 @@
     throw new Error('Could not recognize this timetable format — expected either a flat "List of Courses" sheet (Code/Course/Section/Teacher/Day/Time/Room) or a period-grid timetable sheet.');
   }
 
+  var GENERIC_EXAMPLES = {
+    code: 'the course code',
+    codeSection: 'CODE-SECTION',
+    codeSection2: '',
+    nameWord: ''
+  };
+
+  function pickExamples(sections) {
+    var first = null;
+    var second = null;
+    for (var i = 0; i < sections.length; i++) {
+      var sec = sections[i];
+      if (!sec.code || !sec.section || sec.code === sec.name) continue;
+      if (!first) first = sec;
+      else if (sec.code !== first.code) { second = sec; break; }
+    }
+    if (!first) return GENERIC_EXAMPLES;
+
+    var word = '';
+    (first.name || '').split(/[^A-Za-z]+/).forEach(function (w) {
+      if (w.length > word.length) word = w;
+    });
+
+    return {
+      code: first.code,
+      codeSection: first.code + '-' + first.section,
+      codeSection2: second ? second.code + '-' + second.section : '',
+      nameWord: word.length > 3 ? word : ''
+    };
+  }
+
+  function applyExamples() {
+    var ex = state.examples || GENERIC_EXAMPLES;
+    courseSearch.placeholder = ex.nameWord
+      ? 'e.g. ' + ex.code + ' or ' + ex.nameWord
+      : 'Start typing a course code or name';
+    var joined = ex.codeSection + (ex.codeSection2 ? ', ' + ex.codeSection2 : '');
+    if (quickAddExample) quickAddExample.textContent = joined;
+    quickAddInput.placeholder = joined;
+  }
+
   function setUploadStatus(message, kind) {
     uploadStatus.textContent = message;
     uploadStatus.classList.toggle('error', kind === 'error');
@@ -763,6 +807,7 @@
 
     state.meta = parsed.meta;
     state.sections = parsed.sections;
+    state.examples = pickExamples(parsed.sections);
     state.selected = new Map();
     state.colorAssignments = new Map();
     state.nextColorSlot = 0;
@@ -783,11 +828,14 @@
       ? 'This file lists the exact length of every class, so no estimates are needed — these inputs are disabled.'
       : defaultAdvancedHint;
 
+    browseJumpLabel.innerHTML = "Not sure what's on offer? <strong>Browse all " + courseCount + " courses</strong>";
+
     setUploadStatus('Loaded ' + (fileName || 'file') + ' — ' + courseCount + ' courses.', 'success');
     buildPanel.hidden = false;
     imagePanel.hidden = false;
     browsePanel.hidden = false;
 
+    applyExamples();
     quickAddFeedback.textContent = '';
     courseSearch.value = '';
     browseFilter.value = '';
@@ -839,23 +887,6 @@
     }
   });
 
-  var SAMPLE_FILE = 'EE Time Table (Fall 2026) v1.0.xlsx';
-  loadSampleBtn.addEventListener('click', function () {
-    setUploadStatus('Fetching the sample timetable…');
-    fetch(encodeURI(SAMPLE_FILE))
-      .then(function (res) {
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        return res.arrayBuffer();
-      })
-      .then(function (buf) { loadArrayBuffer(buf, SAMPLE_FILE); })
-      .catch(function () {
-        setUploadStatus(
-          'Could not fetch the sample. If you opened this page as a local file, serve it over http instead (e.g. "python -m http.server") — browsers block fetch() on file:// pages.',
-          'error'
-        );
-      });
-  });
-
   function courseGroups(query) {
     var tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
     var groups = new Map();
@@ -882,7 +913,7 @@
 
     var groups = courseGroups(courseSearch.value);
     if (!groups.length) {
-      searchResults.appendChild(el('div', 'no-results', 'No courses match that — try just the code, e.g. "EE3012".'));
+      searchResults.appendChild(el('div', 'no-results', 'No courses match that — try just the code, e.g. "' + (state.examples || GENERIC_EXAMPLES).code + '".'));
       return;
     }
 
@@ -1009,7 +1040,7 @@
       .filter(Boolean);
 
     if (!tokens.length) {
-      quickAddFeedback.appendChild(el('div', 'qa-fail', 'Nothing to add — paste codes like "EE3012-5A" first.'));
+      quickAddFeedback.appendChild(el('div', 'qa-fail', 'Nothing to add — paste codes like "' + (state.examples || GENERIC_EXAMPLES).codeSection + '" first.'));
       return;
     }
 
@@ -1498,6 +1529,19 @@
 
   tabCourses.addEventListener('click', function () { setBrowseView('courses'); });
   tabTeachers.addEventListener('click', function () { setBrowseView('teachers'); });
+  browseJump.addEventListener('click', function () {
+    browsePanel.hidden = false;
+    browsePanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    browsePanel.classList.remove('panel-flash');
+    void browsePanel.offsetWidth;
+    browsePanel.classList.add('panel-flash');
+    browseFilter.focus({ preventScroll: true });
+  });
+
+  browsePanel.addEventListener('animationend', function () {
+    browsePanel.classList.remove('panel-flash');
+  });
+
   browseFilter.addEventListener('input', renderBrowse);
 
   campusSelect.value = state.reviewCampus;

@@ -42,11 +42,6 @@
         </div>
       </label>
 
-      <div class="upload-alt">
-        <span>Don't have a file handy?</span>
-        <button type="button" class="link-btn" id="load-sample-btn">Try the sample EE timetable</button>
-      </div>
-
       <div id="upload-status" class="status-line" role="status" aria-live="polite"></div>
     </section>
 
@@ -57,17 +52,25 @@
       </div>
       <p class="panel-hint" id="file-summary"></p>
 
+      <div class="browse-jump-row">
+        <button type="button" class="browse-jump" id="browse-jump">
+          <span aria-hidden="true">📚</span>
+          <span id="browse-jump-label">Not sure what's on offer? <strong>Browse the whole catalog</strong></span>
+          <span class="browse-jump-arrow" aria-hidden="true">↓</span>
+        </button>
+      </div>
+
       <div class="build-grid">
 
         <div class="picker-col">
           <label class="field-label" for="course-search">Search by code or course name</label>
-          <input type="text" id="course-search" class="text-input" placeholder="e.g. EE3012 or Interfacing" autocomplete="off" />
+          <input type="text" id="course-search" class="text-input" placeholder="Start typing a course code or name" autocomplete="off" />
           <div id="search-results" class="search-results" role="listbox" aria-label="Matching sections"></div>
 
           <details class="quick-add">
             <summary>Or paste codes + sections in one go</summary>
-            <p class="quick-add-hint">One per line or comma-separated, e.g. <code>EE3012-5A, EL3012-5A1</code></p>
-            <textarea id="quick-add-input" class="text-input" rows="3" placeholder="EE3012-5A, EL3012-5A1"></textarea>
+            <p class="quick-add-hint">One per line or comma-separated, e.g. <code id="quick-add-example">CODE-SECTION</code></p>
+            <textarea id="quick-add-input" class="text-input" rows="3" placeholder="CODE-SECTION, CODE-SECTION"></textarea>
             <div class="quick-add-actions">
               <button type="button" class="btn btn-secondary" id="quick-add-resolve">Add these</button>
             </div>

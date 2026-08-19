@@ -10,8 +10,7 @@ uploaded anywhere.
 
 ## Run it
 
-No build step. Serve the folder over http (the sample-file button uses
-`fetch()`, which browsers block on `file://` pages):
+No build step. Serve the folder over http:
 
 ```
 python -m http.server 8000
@@ -34,11 +33,6 @@ Or from the CLI:
 ```
 npx vercel --prod
 ```
-
-`EE Time Table (Fall 2026) v1.0.xlsx` is committed on purpose — the "Try the
-sample" button fetches it at runtime. Every other timetable export is
-gitignored, so dropping a file into this folder while working never puts
-someone's schedule in the repo.
 
 ## Notes
 
