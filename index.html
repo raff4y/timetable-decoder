@@ -12,14 +12,22 @@
 <div class="page">
 
   <header class="site-header">
-    <div class="brand">
-      <span class="brand-mark" aria-hidden="true">🗓️</span>
-      <div>
-        <h1>Timetable Decoder</h1>
-        <p class="tagline">Turn your FAST-NUCES timetable export into your own schedule image.</p>
+    <div class="header-bar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">🗓️</span>
+        <div>
+          <h1>Timetable Decoder</h1>
+          <p class="tagline">Turn your FAST-NUCES timetable export into your own schedule image.</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button type="button" class="btn btn-nav" id="browse-open" disabled title="Upload a timetable first">
+          <span aria-hidden="true">📚</span>
+          <span>Browse the catalog</span>
+        </button>
       </div>
     </div>
-    <p class="privacy-note">Everything runs in your browser — your file is never uploaded anywhere.</p>
+    <p class="privacy-note">Everything runs in your browser - your file is never uploaded anywhere.</p>
   </header>
 
   <main class="split">
@@ -31,7 +39,7 @@
         <span class="step-badge">1</span>
         <h2 id="upload-heading">Upload your timetable</h2>
       </div>
-      <p class="panel-hint">Drop the department's official Excel timetable export here — the flat "List of Courses" sheet or the rooms-by-periods grid, whichever your department publishes.</p>
+      <p class="panel-hint">Drop the department's official Excel timetable export here - the flat "List of Courses" sheet or the rooms-by-periods grid, whichever your department publishes.</p>
 
       <label id="dropzone" for="file-input" tabindex="0">
         <input type="file" id="file-input" accept=".xlsx,.xls" hidden />
@@ -84,7 +92,7 @@
             <span id="selected-count" class="count-pill">0</span>
           </div>
           <ul id="selected-list" class="selected-list"></ul>
-          <p id="empty-selected-hint" class="empty-hint">Nothing added yet — search on the left to get started.</p>
+          <p id="empty-selected-hint" class="empty-hint">Nothing added yet - search on the left to get started.</p>
 
           <div id="conflict-banner" class="conflict-banner" hidden>
             <span class="conflict-icon" aria-hidden="true">⚠️</span>
@@ -93,7 +101,7 @@
 
           <details class="advanced-settings">
             <summary>Advanced: class length estimates</summary>
-            <p class="advanced-hint">Your file lists start times but not durations. These defaults come from the department's period grid — nudge them if your classes run differently.</p>
+            <p class="advanced-hint">Your file lists start times but not durations. These defaults come from the department's period grid - nudge them if your classes run differently.</p>
             <div class="advanced-row">
               <label for="theory-min">Theory class</label>
               <input type="number" id="theory-min" min="20" max="240" step="5" value="80" /> min
@@ -108,37 +116,6 @@
       </div>
     </section>
 
-    <section class="panel" id="browse-panel" aria-labelledby="browse-heading" hidden>
-      <div class="panel-head">
-        <span class="step-badge badge-icon" aria-hidden="true">📚</span>
-        <h2 id="browse-heading">Browse the catalog</h2>
-      </div>
-      <p class="panel-hint">Everything offered this semester — every course, and who teaches what. Click anything to jump to it in the search. Every teacher links out to their student reviews on NUCESRate.</p>
-
-      <div id="browse-stats" class="browse-stats"></div>
-
-      <div class="browse-controls">
-        <div class="seg-tabs" role="tablist" aria-label="Catalog view">
-          <button type="button" class="seg-tab active" id="tab-courses" role="tab" aria-selected="true">Courses</button>
-          <button type="button" class="seg-tab" id="tab-teachers" role="tab" aria-selected="false">Teachers</button>
-        </div>
-        <input type="text" id="browse-filter" class="text-input browse-filter" placeholder="Filter by course, code, or teacher…" autocomplete="off" />
-
-        <label class="campus-picker" for="campus-select">
-          <span>Reviews campus</span>
-          <select id="campus-select">
-            <option value="">All campuses</option>
-            <option value="Islamabad">Islamabad</option>
-            <option value="Karachi">Karachi</option>
-            <option value="Lahore">Lahore</option>
-            <option value="Peshawar">Peshawar</option>
-            <option value="Chiniot-Faisalabad">Chiniot-Faisalabad</option>
-          </select>
-        </label>
-      </div>
-
-      <div id="browse-content" class="browse-content"></div>
-    </section>
 
     </div>
 
@@ -165,11 +142,59 @@
   </main>
 
   <footer class="site-footer">
-    <p>Built for FAST-NUCES students. Class lengths are estimated from the department's standard period grid — always double-check against the official timetable before finalizing your course selection.</p>
-    <p>Teacher reviews are written by students and hosted on <a href="https://nucesrate.vercel.app" target="_blank" rel="noopener noreferrer">NUCESRate</a> — the “Reviews” links just open a search there, so nothing about your schedule is shared with them.</p>
+    <p>Built for FAST-NUCES students. Class lengths are estimated from the department's standard period grid - always double-check against the official timetable before finalizing your course selection.</p>
+    <p>Teacher reviews are written by students and hosted on <a href="https://nucesrate.vercel.app" target="_blank" rel="noopener noreferrer">NUCESRate</a> - the “Reviews” links just open a search there, so nothing about your schedule is shared with them.</p>
   </footer>
 
 </div>
+
+  <dialog id="browse-modal" class="browse-modal" aria-labelledby="browse-heading">
+    <div class="browse-modal-inner">
+
+      <div class="browse-modal-head">
+        <div class="browse-modal-title">
+          <span class="badge-icon" aria-hidden="true">📚</span>
+          <div>
+            <h2 id="browse-heading">Browse the catalog</h2>
+            <p class="browse-modal-sub">Everything offered this semester. Add any section straight to your timetable - teachers link out to their student reviews on NUCESRate.</p>
+          </div>
+        </div>
+        <button type="button" class="browse-close" id="browse-close" aria-label="Close the catalog">×</button>
+      </div>
+
+      <div id="browse-stats" class="browse-stats"></div>
+
+      <div class="browse-controls">
+        <div class="seg-tabs" role="tablist" aria-label="Catalog view">
+          <button type="button" class="seg-tab active" id="tab-courses" role="tab" aria-selected="true">Courses</button>
+          <button type="button" class="seg-tab" id="tab-teachers" role="tab" aria-selected="false">Teachers</button>
+          <button type="button" class="seg-tab" id="tab-sections" role="tab" aria-selected="false">Sections</button>
+        </div>
+        <input type="text" id="browse-filter" class="text-input browse-filter" placeholder="Filter by course, code, teacher, or section…" autocomplete="off" />
+
+        <label class="campus-picker" for="campus-select">
+          <span>Reviews campus</span>
+          <select id="campus-select">
+            <option value="">All campuses</option>
+            <option value="Islamabad">Islamabad</option>
+            <option value="Karachi">Karachi</option>
+            <option value="Lahore">Lahore</option>
+            <option value="Peshawar">Peshawar</option>
+            <option value="Chiniot-Faisalabad">Chiniot-Faisalabad</option>
+          </select>
+        </label>
+      </div>
+
+      <div id="browse-content" class="browse-content"></div>
+
+      <div class="browse-modal-foot">
+        <span class="browse-foot-count" id="browse-foot-count"></span>
+        <button type="button" class="btn btn-primary" id="browse-done">Done</button>
+      </div>
+
+    </div>
+  </dialog>
+
 
 <script src="vendor/xlsx.full.min.js"></script>
 <script src="app.js"></script>

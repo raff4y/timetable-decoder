@@ -4,7 +4,7 @@ This is for FAST NUCES students help to decode their messy timetables.
 
 Upload the department's official Excel timetable export (the workbook with a
 "List of Courses" sheet), search or bulk-paste your course sections, and
-download a clean PNG of your personal weekly schedule — labs, rooms, and
+download a clean PNG of your personal weekly schedule - labs, rooms, and
 instructors included. Everything runs in the browser; the file is never
 uploaded anywhere.
 
@@ -25,7 +25,7 @@ host works. On Vercel, import the repo and deploy with no configuration:
 
 - Framework preset: **Other**
 - Build command: *(leave empty)*
-- Output directory: *(leave empty — the repo root is served as-is)*
+- Output directory: *(leave empty - the repo root is served as-is)*
 - Install command: *(leave empty)*
 
 Or from the CLI:
@@ -48,17 +48,17 @@ npx vercel --prod
   The grid template encodes exact durations, so the estimates are disabled.
 - Grid files vary a lot between departments, and the parser is deliberately
   forgiving about it:
-  - Period headers in any dialect — `08:30-10:00`, `8:30 AM to 9:50 AM`,
+  - Period headers in any dialect - `08:30-10:00`, `8:30 AM to 9:50 AM`,
     `6:00 P.M.to 9:00 PM`.
   - A cell reading `Course Title (SECTION) Instructor`, with or without a
     colon, with two co-scheduled courses joined by `&` or `/`, or with a
     mistyped bracket.
   - A time typed inside a cell (`... 4:00 to 6:00 Ms. X`) wins over the block's
-    drawn width — hand-drawn blocks are often a column off. Where a file states
+    drawn width - hand-drawn blocks are often a column off. Where a file states
     a slot in words in one cell and draws it 10 minutes early in another, the
     near-misses are snapped onto the stated time.
   - Class length comes from the typed time, else the merged block's width, else
-    the rest of the period — so a 6-9pm MBA class isn't drawn as 80 minutes.
+    the rest of the period - so a 6-9pm MBA class isn't drawn as 80 minutes.
   - Grid and course-list sheets rarely word a course identically, so titles
     match after dropping qualifiers like "(Elective)", lab subsections
     (`BAF-1A1`) fall back to their parent row (`BAF-1A`), and a longest-prefix
@@ -70,7 +70,7 @@ npx vercel --prod
   teacher's course load, filterable, with click-through to the section picker.
 - Every instructor gets a "Reviews" link to their student reviews on
   [NUCESRate](https://nucesrate.vercel.app). These are plain outbound links to
-  that site's own search page — no API, no key, and nothing about the
+  that site's own search page - no API, no key, and nothing about the
   schedule leaves the browser. Honorifics are stripped from the timetable name
   before searching (their records carry their own), and role placeholders like
   "Lab Engineer - II" are skipped. The campus dropdown in the catalog panel

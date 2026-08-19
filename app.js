@@ -42,7 +42,11 @@
   var labMinInput = $('lab-min');
   var canvas = $('timetable-canvas');
   var downloadBtn = $('download-btn');
-  var browsePanel = $('browse-panel');
+  var browseModal = $('browse-modal');
+  var browseOpenBtn = $('browse-open');
+  var browseCloseBtn = $('browse-close');
+  var browseDoneBtn = $('browse-done');
+  var browseFootCount = $('browse-foot-count');
   var browseStats = $('browse-stats');
   var browseContent = $('browse-content');
   var browseFilter = $('browse-filter');
@@ -50,6 +54,7 @@
   var browseJumpLabel = $('browse-jump-label');
   var tabCourses = $('tab-courses');
   var tabTeachers = $('tab-teachers');
+  var tabSections = $('tab-sections');
   var campusSelect = $('campus-select');
   var advancedHint = document.querySelector('.advanced-hint');
   var defaultAdvancedHint = advancedHint.textContent;
@@ -74,7 +79,7 @@
 
   function baseNameKey(name) {
 
-    return String(name).replace(/\s*[-–—]?\s*\(?\blab\b\)?\s*$/i, '').trim().toLowerCase();
+    return String(name).replace(/\s*[-–-]?\s*\(?\blab\b\)?\s*$/i, '').trim().toLowerCase();
   }
 
   function colorForSection(sec) {
@@ -352,7 +357,7 @@
   }
 
   var CLOCK_RE = /(\d{1,2})[:.](\d{2})\s*(a\.?\s*m\.?|p\.?\s*m\.?)?/gi;
-  var RANGE_SEP_RE = /^[\s.]*(?:to|till|until|[-–—])[\s.]*$/i;
+  var RANGE_SEP_RE = /^[\s.]*(?:to|till|until|[-–-])[\s.]*$/i;
 
   function clockToMinutes(hour, minute, meridiem) {
     var h = hour;
@@ -747,7 +752,7 @@
     });
     if (grids.length) return parseGridWorkbook(sheetsData, grids, fileName);
 
-    throw new Error('Could not recognize this timetable format — expected either a flat "List of Courses" sheet (Code/Course/Section/Teacher/Day/Time/Room) or a period-grid timetable sheet.');
+    throw new Error('Could not recognize this timetable format - expected either a flat "List of Courses" sheet (Code/Course/Section/Teacher/Day/Time/Room) or a period-grid timetable sheet.');
   }
 
   var GENERIC_EXAMPLES = {
@@ -817,7 +822,7 @@
     if (parsed.meta.department) parts.push(parsed.meta.department);
     if (parsed.meta.semester) parts.push(parsed.meta.semester);
     parts.push(courseCount + ' courses · ' + parsed.sections.length + ' sections found');
-    fileSummary.textContent = parts.join(' — ');
+    fileSummary.textContent = parts.join(' - ');
 
     var allExplicit = parsed.sections.every(function (sec) {
       return sec.meetings.every(function (m) { return m.durMin; });
@@ -825,12 +830,12 @@
     theoryMinInput.disabled = allExplicit;
     labMinInput.disabled = allExplicit;
     advancedHint.textContent = allExplicit
-      ? 'This file lists the exact length of every class, so no estimates are needed — these inputs are disabled.'
+      ? 'This file lists the exact length of every class, so no estimates are needed - these inputs are disabled.'
       : defaultAdvancedHint;
 
     browseJumpLabel.innerHTML = "Not sure what's on offer? <strong>Browse all " + courseCount + " courses</strong>";
 
-    setUploadStatus('Loaded ' + (fileName || 'file') + ' — ' + courseCount + ' courses.', 'success');
+    setUploadStatus('Loaded ' + (fileName || 'file') + ' - ' + courseCount + ' courses.', 'success');
     buildPanel.hidden = false;
     imagePanel.hidden = false;
     browsePanel.hidden = false;
@@ -848,7 +853,7 @@
   function handleFile(file) {
     if (!file) return;
     if (!/\.xlsx?$/i.test(file.name)) {
-      setUploadStatus('That doesn’t look like an Excel file — expected .xlsx or .xls.', 'error');
+      setUploadStatus('That doesn’t look like an Excel file - expected .xlsx or .xls.', 'error');
       return;
     }
     setUploadStatus('Reading ' + file.name + '…');
@@ -913,7 +918,7 @@
 
     var groups = courseGroups(courseSearch.value);
     if (!groups.length) {
-      searchResults.appendChild(el('div', 'no-results', 'No courses match that — try just the code, e.g. "' + (state.examples || GENERIC_EXAMPLES).code + '".'));
+      searchResults.appendChild(el('div', 'no-results', 'No courses match that - try just the code, e.g. "' + (state.examples || GENERIC_EXAMPLES).code + '".'));
       return;
     }
 
@@ -1020,7 +1025,7 @@
 
     if (!remainder) {
       if (ofCode.length === 1) return { ok: true, section: ofCode[0] };
-      return { ok: false, reason: codeUpper + ' has ' + ofCode.length + ' sections — add one, e.g. ' + codeUpper + '-' + ofCode[0].section };
+      return { ok: false, reason: codeUpper + ' has ' + ofCode.length + ' sections - add one, e.g. ' + codeUpper + '-' + ofCode[0].section };
     }
 
     var norm = function (s) { return s.replace(/[^A-Za-z0-9]+/g, '').toLowerCase(); };
@@ -1040,7 +1045,7 @@
       .filter(Boolean);
 
     if (!tokens.length) {
-      quickAddFeedback.appendChild(el('div', 'qa-fail', 'Nothing to add — paste codes like "' + (state.examples || GENERIC_EXAMPLES).codeSection + '" first.'));
+      quickAddFeedback.appendChild(el('div', 'qa-fail', 'Nothing to add - paste codes like "' + (state.examples || GENERIC_EXAMPLES).codeSection + '" first.'));
       return;
     }
 
@@ -1048,7 +1053,7 @@
     tokens.forEach(function (token) {
       var result = resolveQuickAddToken(token);
       if (!result.ok) {
-        quickAddFeedback.appendChild(el('div', 'qa-fail', '✗ ' + token + ' — ' + result.reason));
+        quickAddFeedback.appendChild(el('div', 'qa-fail', '✗ ' + token + ' - ' + result.reason));
         return;
       }
       var sec = result.section;
@@ -1206,7 +1211,7 @@
       if (state.meta.department) titleParts.push(state.meta.department);
       if (state.meta.semester) titleParts.push(state.meta.semester);
     }
-    var title = titleParts.join(' — ');
+    var title = titleParts.join(' - ');
     var titleH = title ? L.titleH : 0;
 
     var gridW = grid.dayIdxs.length * L.colW;
@@ -1493,7 +1498,7 @@
         chip.type = 'button';
         chip.appendChild(el('strong', null, course.code));
         chip.appendChild(document.createTextNode(' ' + course.name));
-        chip.title = course.code + ' — ' + course.name;
+        chip.title = course.code + ' - ' + course.name;
         chip.addEventListener('click', function () { jumpToSearch(course.code); });
         chips.appendChild(chip);
       });
