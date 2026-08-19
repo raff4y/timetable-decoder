@@ -66,14 +66,17 @@ npx vercel --prod
     grid title in place of a code.
 - A course and its lab render in the same color; overlapping classes are
   flagged and drawn side by side.
-- A "Browse the catalog" section lists every course offered and every
-  teacher's course load, filterable, with click-through to the section picker.
+- "Browse the catalog" is a button in the header that opens a full-screen
+  dialog with three filterable views - Courses, Teachers, and Sections (each
+  section grouped with its lab sub-sections, e.g. `BAF-1A` with `BAF-1A1`).
+  Every row has an Add button that puts that section straight on the timetable,
+  and the Added state stays in sync with the picker behind the dialog.
 - Every instructor gets a "Reviews" link to their student reviews on
   [NUCESRate](https://nucesrate.vercel.app). These are plain outbound links to
   that site's own search page - no API, no key, and nothing about the
   schedule leaves the browser. Honorifics are stripped from the timetable name
   before searching (their records carry their own), and role placeholders like
-  "Lab Engineer - II" are skipped. The campus dropdown in the catalog panel
+  "Lab Engineer - II" are skipped. The campus dropdown in the catalog dialog
   narrows the search for common names; it's remembered in `localStorage`.
 - `vendor/xlsx.full.min.js` is SheetJS `xlsx@0.18.5`, vendored so the app
   works offline.

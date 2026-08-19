@@ -838,7 +838,8 @@
     setUploadStatus('Loaded ' + (fileName || 'file') + ' - ' + courseCount + ' courses.', 'success');
     buildPanel.hidden = false;
     imagePanel.hidden = false;
-    browsePanel.hidden = false;
+    browseOpenBtn.disabled = false;
+    browseOpenBtn.removeAttribute('title');
 
     applyExamples();
     quickAddFeedback.textContent = '';
@@ -1432,6 +1433,58 @@
     });
   }
 
+  function sectionParts(label) {
+
+    var primary = String(label || '').split('/')[0].trim();
+    var m = /^(.*?)-?(\d+)\s*([A-Za-z]+)(\d+)?$/.exec(primary);
+    if (!m) return { base: primary || label, sub: null };
+    var base = (m[1] ? m[1] + '-' : '') + m[2] + m[3].toUpperCase();
+    return { base: base, sub: m[4] || null };
+  }
+
+  function sectionRow(sec, showCourse) {
+    var row = el('div', 'catalog-row');
+    row.dataset.key = sectionKey(sec);
+
+    var main = el('div', 'catalog-row-main');
+    var title = el('div', 'catalog-row-title');
+    if (showCourse) {
+      if (sec.code !== sec.name) title.appendChild(el('strong', null, sec.code));
+      title.appendChild(document.createTextNode(' ' + sec.name + ' '));
+    }
+    title.appendChild(el('span', 'catalog-row-section', sec.section));
+    main.appendChild(title);
+
+    var metaBits = [sec.teacher, sectionMeetingSummary(sec)].filter(Boolean);
+    if (metaBits.length) main.appendChild(el('div', 'catalog-row-meta', metaBits.join(' · ')));
+    row.appendChild(main);
+
+    var link = reviewLink(sec.teacher);
+    if (link) row.appendChild(link);
+
+    var add = el('button', 'catalog-add');
+    add.type = 'button';
+    add.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      toggleSection(sec);
+    });
+    row.appendChild(add);
+
+    return row;
+  }
+
+  function updateBrowseAddStates() {
+    browseContent.querySelectorAll('.catalog-row').forEach(function (row) {
+      var added = state.selected.has(row.dataset.key);
+      row.classList.toggle('added', added);
+      row.querySelector('.catalog-add').textContent = added ? 'Added' : 'Add';
+    });
+    var n = state.selected.size;
+    browseFootCount.textContent = n
+      ? n + (n === 1 ? ' section added' : ' sections added')
+      : 'Nothing added yet';
+  }
+
   function renderBrowseCourses(tokens) {
     var grid = el('div', 'course-grid');
     var shown = 0;
@@ -1440,26 +1493,32 @@
       group.sections.forEach(function (sec) {
         if (sec.teacher && teachers.indexOf(sec.teacher) === -1) teachers.push(sec.teacher);
       });
-      var hay = group.code + ' ' + group.name + ' ' + teachers.join(' ');
+      var hay = group.code + ' ' + group.name + ' ' + teachers.join(' ') + ' ' +
+        group.sections.map(function (s) { return s.section; }).join(' ');
       if (!matchesFilter(hay, tokens)) return;
       shown++;
 
-      var card = el('button', 'course-card');
-      card.type = 'button';
+      var card = el('details', 'course-card');
+      var summary = el('summary', 'course-card-summary');
 
       var top = el('div', 'course-card-top');
       top.appendChild(el('span', 'course-code', group.code));
       if (/\blab\b/i.test(group.name)) top.appendChild(el('span', 'lab-tag', 'Lab'));
-      card.appendChild(top);
+      summary.appendChild(top);
 
-      card.appendChild(el('div', 'course-name', group.name));
+      summary.appendChild(el('div', 'course-name', group.name));
 
       var n = group.sections.length;
       var meta = n + (n === 1 ? ' section' : ' sections');
       if (teachers.length) meta += ' · ' + teachers.join(', ');
-      card.appendChild(el('div', 'course-meta', meta));
+      summary.appendChild(el('div', 'course-meta', meta));
+      card.appendChild(summary);
 
-      card.addEventListener('click', function () { jumpToSearch(group.code); });
+      var rows = el('div', 'catalog-rows');
+      group.sections.forEach(function (sec) { rows.appendChild(sectionRow(sec, false)); });
+      card.appendChild(rows);
+
+      if (tokens.length) card.open = true;
       grid.appendChild(card);
     });
 
@@ -1479,9 +1538,9 @@
       if (!matchesFilter(hay, tokens)) return;
       shown++;
 
-      var row = el('div', 'teacher-row');
+      var row = el('details', 'teacher-row');
 
-      var head = el('div', 'teacher-head');
+      var head = el('summary', 'teacher-head');
       head.appendChild(el('span', 'teacher-avatar', teacherInitials(teacher.name)));
       head.appendChild(el('span', 'teacher-name', teacher.name));
       var nc = courses.length;
@@ -1492,23 +1551,107 @@
       if (link) head.appendChild(link);
       row.appendChild(head);
 
-      var chips = el('div', 'teacher-courses');
-      courses.forEach(function (course) {
-        var chip = el('button', 'course-chip');
-        chip.type = 'button';
-        chip.appendChild(el('strong', null, course.code));
-        chip.appendChild(document.createTextNode(' ' + course.name));
-        chip.title = course.code + ' - ' + course.name;
-        chip.addEventListener('click', function () { jumpToSearch(course.code); });
-        chips.appendChild(chip);
+      var rows = el('div', 'catalog-rows');
+      state.sections.forEach(function (sec) {
+        if ((sec.teacher || 'TBA') !== teacher.name) return;
+        rows.appendChild(sectionRow(sec, true));
       });
-      row.appendChild(chips);
+      row.appendChild(rows);
 
+      if (tokens.length) row.open = true;
       list.appendChild(row);
     });
 
     if (!shown) {
       browseContent.appendChild(el('div', 'no-results', 'No teacher matches that filter.'));
+    } else {
+      browseContent.appendChild(list);
+    }
+  }
+
+  function sectionCatalog() {
+
+    var bases = new Map();
+    state.sections.forEach(function (sec) {
+      var parts = sectionParts(sec.section);
+      var base = bases.get(parts.base);
+      if (!base) {
+        base = { label: parts.base, subs: new Map(), total: 0 };
+        bases.set(parts.base, base);
+      }
+      base.total++;
+      var sub = base.subs.get(sec.section);
+      if (!sub) {
+        sub = { label: sec.section, isSub: !!parts.sub, sections: [] };
+        base.subs.set(sec.section, sub);
+      }
+      sub.sections.push(sec);
+    });
+
+    var list = Array.from(bases.values());
+    list.sort(function (a, b) { return a.label.localeCompare(b.label, undefined, { numeric: true }); });
+    list.forEach(function (base) {
+      base.subList = Array.from(base.subs.values()).sort(function (a, b) {
+        return a.label.localeCompare(b.label, undefined, { numeric: true });
+      });
+    });
+    return list;
+  }
+
+  function renderBrowseSections(tokens) {
+    var list = el('div', 'section-list');
+    var shown = 0;
+
+    sectionCatalog().forEach(function (base) {
+      var courseText = [];
+      base.subList.forEach(function (sub) {
+        sub.sections.forEach(function (sec) {
+          courseText.push(sec.code + ' ' + sec.name + ' ' + (sec.teacher || ''));
+        });
+      });
+      var hay = base.label + ' ' + base.subList.map(function (s) { return s.label; }).join(' ') +
+        ' ' + courseText.join(' ');
+      if (!matchesFilter(hay, tokens)) return;
+      shown++;
+
+      var group = el('details', 'section-group');
+
+      var head = el('summary', 'section-head');
+      head.appendChild(el('span', 'section-label', base.label));
+      head.appendChild(el('span', 'section-load',
+        base.total + (base.total === 1 ? ' class' : ' classes')));
+
+      var subs = base.subList.filter(function (s) { return s.label !== base.label; });
+      if (subs.length) {
+        var tags = el('span', 'section-subs');
+        subs.forEach(function (sub) { tags.appendChild(el('span', 'sub-tag', sub.label)); });
+        head.appendChild(tags);
+      }
+      group.appendChild(head);
+
+      base.subList.forEach(function (sub) {
+        var block = el('div', 'sub-block');
+
+        var subHead = el('div', 'sub-head');
+        subHead.appendChild(el('span', 'sub-head-label', sub.label));
+        subHead.appendChild(el('span', 'sub-head-count',
+          sub.sections.length + (sub.sections.length === 1 ? ' class' : ' classes') +
+          (sub.isSub ? ' · sub-section' : '')));
+        block.appendChild(subHead);
+
+        var rows = el('div', 'catalog-rows');
+        sub.sections.forEach(function (sec) { rows.appendChild(sectionRow(sec, true)); });
+        block.appendChild(rows);
+
+        group.appendChild(block);
+      });
+
+      if (tokens.length) group.open = true;
+      list.appendChild(group);
+    });
+
+    if (!shown) {
+      browseContent.appendChild(el('div', 'no-results', 'No section matches that filter.'));
     } else {
       browseContent.appendChild(list);
     }
@@ -1520,31 +1663,49 @@
     browseContent.textContent = '';
     var tokens = browseFilter.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
     if (state.browseView === 'teachers') renderBrowseTeachers(tokens);
+    else if (state.browseView === 'sections') renderBrowseSections(tokens);
     else renderBrowseCourses(tokens);
+    updateBrowseAddStates();
   }
 
   function setBrowseView(view) {
     state.browseView = view;
-    tabCourses.classList.toggle('active', view === 'courses');
-    tabTeachers.classList.toggle('active', view === 'teachers');
-    tabCourses.setAttribute('aria-selected', view === 'courses' ? 'true' : 'false');
-    tabTeachers.setAttribute('aria-selected', view === 'teachers' ? 'true' : 'false');
+    [[tabCourses, 'courses'], [tabTeachers, 'teachers'], [tabSections, 'sections']].forEach(function (pair) {
+      var isActive = view === pair[1];
+      pair[0].classList.toggle('active', isActive);
+      pair[0].setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+    browseContent.scrollTop = 0;
     renderBrowse();
   }
 
   tabCourses.addEventListener('click', function () { setBrowseView('courses'); });
   tabTeachers.addEventListener('click', function () { setBrowseView('teachers'); });
-  browseJump.addEventListener('click', function () {
-    browsePanel.hidden = false;
-    browsePanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    browsePanel.classList.remove('panel-flash');
-    void browsePanel.offsetWidth;
-    browsePanel.classList.add('panel-flash');
-    browseFilter.focus({ preventScroll: true });
-  });
+  tabSections.addEventListener('click', function () { setBrowseView('sections'); });
 
-  browsePanel.addEventListener('animationend', function () {
-    browsePanel.classList.remove('panel-flash');
+  function openBrowse() {
+    if (!state.sections.length) return;
+    renderBrowse();
+    if (!browseModal.open) {
+      if (browseModal.showModal) browseModal.showModal();
+      else browseModal.setAttribute('open', '');
+    }
+    browseFilter.focus({ preventScroll: true });
+  }
+
+  function closeBrowse() {
+    if (browseModal.close) browseModal.close();
+    else browseModal.removeAttribute('open');
+  }
+
+  browseOpenBtn.addEventListener('click', openBrowse);
+  browseJump.addEventListener('click', openBrowse);
+  browseCloseBtn.addEventListener('click', closeBrowse);
+  browseDoneBtn.addEventListener('click', closeBrowse);
+
+  browseModal.addEventListener('click', function (ev) {
+
+    if (ev.target === browseModal) closeBrowse();
   });
 
   browseFilter.addEventListener('input', renderBrowse);
@@ -1564,6 +1725,7 @@
   function renderAll() {
     renderSelectedList();
     updateResultRowStates();
+    updateBrowseAddStates();
     renderConflicts(selectedEvents());
     renderCanvas();
   }
