@@ -45,13 +45,31 @@ someone's schedule in the repo.
 - Two export templates are supported and auto-detected:
   - **Flat list** (e.g. EE department): a "List of Courses" sheet with
     Code/Course/Section/Teacher/Day/Time/Room rows.
-  - **Period grid** (e.g. FAST School of Computing): a "Combined TT"
-    rooms-by-periods grid in 10-minute columns, joined with the per-department
-    course-list sheets for full course titles, codes, and instructor names.
+  - **Period grid** (e.g. FAST School of Computing, FAST School of Management):
+    a rooms-by-periods grid in 10-minute columns, joined with the course-list
+    sheet(s) for full course titles, codes, and instructor names.
 - The flat template lists start times but not durations, so class lengths are
   estimated: 80 min for theory, 150 min for labs (the department's standard
   period grid). Both are adjustable under "Advanced: class length estimates".
   The grid template encodes exact durations, so the estimates are disabled.
+- Grid files vary a lot between departments, and the parser is deliberately
+  forgiving about it:
+  - Period headers in any dialect — `08:30-10:00`, `8:30 AM to 9:50 AM`,
+    `6:00 P.M.to 9:00 PM`.
+  - A cell reading `Course Title (SECTION) Instructor`, with or without a
+    colon, with two co-scheduled courses joined by `&` or `/`, or with a
+    mistyped bracket.
+  - A time typed inside a cell (`... 4:00 to 6:00 Ms. X`) wins over the block's
+    drawn width — hand-drawn blocks are often a column off. Where a file states
+    a slot in words in one cell and draws it 10 minutes early in another, the
+    near-misses are snapped onto the stated time.
+  - Class length comes from the typed time, else the merged block's width, else
+    the rest of the period — so a 6-9pm MBA class isn't drawn as 80 minutes.
+  - Grid and course-list sheets rarely word a course identically, so titles
+    match after dropping qualifiers like "(Elective)", lab subsections
+    (`BAF-1A1`) fall back to their parent row (`BAF-1A`), and a longest-prefix
+    match catches the rest. Courses missing from the list entirely keep their
+    grid title in place of a code.
 - A course and its lab render in the same color; overlapping classes are
   flagged and drawn side by side.
 - A "Browse the catalog" section lists every course offered and every

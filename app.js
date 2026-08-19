@@ -429,7 +429,7 @@
     return p.startMin + (c - p.col) * grid.step;
   }
 
-  var SECTION_TOKEN_RE = /([A-Z]{2,6}\d?-\d[A-Za-z]?\d?(?:\/\d[A-Za-z]?\d?)?)/;
+  var SECTION_TOKEN_RE = /\b([A-Z]{2,6}\d?-\d[A-Za-z]?\d?(?:\/\d[A-Za-z]?\d?)?)\b/;
 
   function parseGridCellEntries(text) {
     var s = String(text).replace(/\s+/g, ' ').trim();
@@ -636,6 +636,7 @@
     var chosen = grids.filter(function (g) { return /combined/i.test(g.name); });
     if (!chosen.length) chosen = grids;
 
+    var pending = [];
     chosen.forEach(function (g) {
       var grid = g.grid;
       var rows = g.rows;
@@ -660,18 +661,39 @@
           var period = periodForCol(grid, c);
           var colStart = gridTimeForCol(grid, c);
           entries.forEach(function (entry) {
-            addMeeting(entry, {
-              dayIdx: currentDay,
-              room: room,
-              startMin: entry.range ? entry.range.startMin : colStart,
-              span: span,
-              step: grid.step,
-              period: period
+            pending.push({
+              entry: entry,
+              place: {
+                dayIdx: currentDay,
+                room: room,
+                startMin: entry.range ? entry.range.startMin : colStart,
+                span: span,
+                step: grid.step,
+                period: period
+              }
             });
           });
         }
       }
     });
+
+    var statedStarts = [];
+    pending.forEach(function (item) {
+      if (item.entry.range && statedStarts.indexOf(item.entry.range.startMin) === -1) {
+        statedStarts.push(item.entry.range.startMin);
+      }
+    });
+    pending.forEach(function (item) {
+      if (item.entry.range) return;
+      for (var i = 0; i < statedStarts.length; i++) {
+        var drift = Math.abs(statedStarts[i] - item.place.startMin);
+        if (drift > 0 && drift <= item.place.step) {
+          item.place.startMin = statedStarts[i];
+          break;
+        }
+      }
+    });
+    pending.forEach(function (item) { addMeeting(item.entry, item.place); });
 
     var title = titleAboveRow(chosen[0].rows, chosen[0].grid.periodRow);
     var bracketed = /\[([^\]]+)\]/.exec(title);
@@ -866,7 +888,7 @@
 
     groups.forEach(function (group) {
       var groupEl = el('div', 'result-group');
-      var head = el('div', 'result-group-head', group.code + ' ');
+      var head = el('div', 'result-group-head', group.code === group.name ? '' : group.code + ' ');
       head.appendChild(el('span', 'rg-name', group.name));
       groupEl.appendChild(head);
 
@@ -931,7 +953,8 @@
       li.appendChild(swatch);
 
       var main = el('div', 'selected-main');
-      main.appendChild(el('div', 'selected-title', sec.code + ' · ' + sec.section));
+      main.appendChild(el('div', 'selected-title',
+        (sec.code === sec.name ? '' : sec.code + ' · ') + sec.section));
       var metaBits = [sec.name, sec.teacher, sectionMeetingSummary(sec)].filter(Boolean);
       main.appendChild(el('div', 'selected-meta', metaBits.join(' · ')));
       li.appendChild(main);
@@ -1258,7 +1281,10 @@
         var innerW = w - 16;
         var cursorY = y + 7;
         var lines = [
-          { text: ev.sec.code + ' · ' + ev.sec.section, font: '700 12px ' + FONT_STACK, lh: 15 },
+          {
+            text: (ev.sec.code === ev.sec.name ? '' : ev.sec.code + ' · ') + ev.sec.section,
+            font: '700 12px ' + FONT_STACK, lh: 15
+          },
           { text: ev.meeting.room, font: '11px ' + FONT_STACK, lh: 14 },
           { text: ev.sec.teacher, font: '11px ' + FONT_STACK, lh: 14 },
           { text: ev.sec.name, font: 'italic 10.5px ' + FONT_STACK, lh: 13 },
