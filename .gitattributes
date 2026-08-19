@@ -1,0 +1,6 @@
+# Never let git rewrite line endings or "fix" characters in third-party bundles
+vendor/** -text -diff linguist-vendored
+*.min.js -text -diff
+
+# Everything else: normalize to LF in the repo
+* text=auto eol=lf
