@@ -1,0 +1,19 @@
+# Uploaded / working timetable exports — these are other people's files,
+# not part of the app. The one sample the app fetches is kept below.
+*.xlsx
+*.xls
+*.xlsm
+*.csv
+!EE Time Table (Fall 2026) v1.0.xlsx
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+.idea/
+.vscode/
+
+# Local tooling
+node_modules/
+.vercel/

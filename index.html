@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Timetable Decoder</title>
+<meta name="description" content="Upload your FAST-NUCES timetable, pick your course sections, and get a clean image of your personal weekly schedule." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%97%93%EF%B8%8F%3C/text%3E%3C/svg%3E" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div class="page">
+
+  <header class="site-header">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">🗓️</span>
+      <div>
+        <h1>Timetable Decoder</h1>
+        <p class="tagline">Turn your FAST-NUCES timetable export into your own schedule image.</p>
+      </div>
+    </div>
+    <p class="privacy-note">Everything runs in your browser — your file is never uploaded anywhere.</p>
+  </header>
+
+  <main class="split">
+
+    <div class="split-col">
+
+    <section class="panel" id="upload-panel" aria-labelledby="upload-heading">
+      <div class="panel-head">
+        <span class="step-badge">1</span>
+        <h2 id="upload-heading">Upload your timetable</h2>
+      </div>
+      <p class="panel-hint">Drop the department's official Excel timetable export here (the file with a "List of Courses" sheet).</p>
+
+      <label id="dropzone" for="file-input" tabindex="0">
+        <input type="file" id="file-input" accept=".xlsx,.xls" hidden />
+        <div class="dropzone-inner">
+          <span class="dropzone-icon" aria-hidden="true">📄</span>
+          <span class="dropzone-text"><strong>Click to choose a file</strong> or drag it here</span>
+          <span class="dropzone-sub">.xlsx or .xls</span>
+        </div>
+      </label>
+
+      <div class="upload-alt">
+        <span>Don't have a file handy?</span>
+        <button type="button" class="link-btn" id="load-sample-btn">Try the sample EE timetable</button>
+      </div>
+
+      <div id="upload-status" class="status-line" role="status" aria-live="polite"></div>
+    </section>
+
+    <section class="panel" id="build-panel" aria-labelledby="build-heading" hidden>
+      <div class="panel-head">
+        <span class="step-badge">2</span>
+        <h2 id="build-heading">Add your courses</h2>
+      </div>
+      <p class="panel-hint" id="file-summary"></p>
+
+      <div class="build-grid">
+
+        <div class="picker-col">
+          <label class="field-label" for="course-search">Search by code or course name</label>
+          <input type="text" id="course-search" class="text-input" placeholder="e.g. EE3012 or Interfacing" autocomplete="off" />
+          <div id="search-results" class="search-results" role="listbox" aria-label="Matching sections"></div>
+
+          <details class="quick-add">
+            <summary>Or paste codes + sections in one go</summary>
+            <p class="quick-add-hint">One per line or comma-separated, e.g. <code>EE3012-5A, EL3012-5A1</code></p>
+            <textarea id="quick-add-input" class="text-input" rows="3" placeholder="EE3012-5A, EL3012-5A1"></textarea>
+            <div class="quick-add-actions">
+              <button type="button" class="btn btn-secondary" id="quick-add-resolve">Add these</button>
+            </div>
+            <div id="quick-add-feedback" class="quick-add-feedback"></div>
+          </details>
+        </div>
+
+        <div class="selected-col">
+          <div class="selected-head">
+            <h3>Your sections</h3>
+            <span id="selected-count" class="count-pill">0</span>
+          </div>
+          <ul id="selected-list" class="selected-list"></ul>
+          <p id="empty-selected-hint" class="empty-hint">Nothing added yet — search on the left to get started.</p>
+
+          <div id="conflict-banner" class="conflict-banner" hidden>
+            <span class="conflict-icon" aria-hidden="true">⚠️</span>
+            <div id="conflict-text"></div>
+          </div>
+
+          <details class="advanced-settings">
+            <summary>Advanced: class length estimates</summary>
+            <p class="advanced-hint">Your file lists start times but not durations. These defaults come from the department's period grid — nudge them if your classes run differently.</p>
+            <div class="advanced-row">
+              <label for="theory-min">Theory class</label>
+              <input type="number" id="theory-min" min="20" max="240" step="5" value="80" /> min
+            </div>
+            <div class="advanced-row">
+              <label for="lab-min">Lab class</label>
+              <input type="number" id="lab-min" min="30" max="300" step="5" value="150" /> min
+            </div>
+          </details>
+        </div>
+
+      </div>
+    </section>
+
+    <section class="panel" id="browse-panel" aria-labelledby="browse-heading" hidden>
+      <div class="panel-head">
+        <span class="step-badge badge-icon" aria-hidden="true">📚</span>
+        <h2 id="browse-heading">Browse the catalog</h2>
+      </div>
+      <p class="panel-hint">Everything offered this semester — every course, and who teaches what. Click anything to jump to it in the search. Every teacher links out to their student reviews on NUCESRate.</p>
+
+      <div id="browse-stats" class="browse-stats"></div>
+
+      <div class="browse-controls">
+        <div class="seg-tabs" role="tablist" aria-label="Catalog view">
+          <button type="button" class="seg-tab active" id="tab-courses" role="tab" aria-selected="true">Courses</button>
+          <button type="button" class="seg-tab" id="tab-teachers" role="tab" aria-selected="false">Teachers</button>
+        </div>
+        <input type="text" id="browse-filter" class="text-input browse-filter" placeholder="Filter by course, code, or teacher…" autocomplete="off" />
+
+        <label class="campus-picker" for="campus-select">
+          <span>Reviews campus</span>
+          <select id="campus-select">
+            <option value="">All campuses</option>
+            <option value="Islamabad">Islamabad</option>
+            <option value="Karachi">Karachi</option>
+            <option value="Lahore">Lahore</option>
+            <option value="Peshawar">Peshawar</option>
+            <option value="Chiniot-Faisalabad">Chiniot-Faisalabad</option>
+          </select>
+        </label>
+      </div>
+
+      <div id="browse-content" class="browse-content"></div>
+    </section>
+
+    </div>
+
+    <div class="split-col">
+
+    <section class="panel" id="image-panel" aria-labelledby="image-heading" hidden>
+      <div class="panel-head">
+        <span class="step-badge">3</span>
+        <h2 id="image-heading">Your timetable</h2>
+      </div>
+
+      <div class="canvas-wrap">
+        <canvas id="timetable-canvas"></canvas>
+      </div>
+
+      <div class="image-actions">
+        <button type="button" class="btn btn-primary" id="download-btn">Download PNG</button>
+        <span class="image-hint">Rendered at high resolution for sharp printing/sharing.</span>
+      </div>
+    </section>
+
+    </div>
+
+  </main>
+
+  <footer class="site-footer">
+    <p>Built for FAST-NUCES students. Class lengths are estimated from the department's standard period grid — always double-check against the official timetable before finalizing your course selection.</p>
+    <p>Teacher reviews are written by students and hosted on <a href="https://nucesrate.vercel.app" target="_blank" rel="noopener noreferrer">NUCESRate</a> — the “Reviews” links just open a search there, so nothing about your schedule is shared with them.</p>
+  </footer>
+
+</div>
+
+<script src="vendor/xlsx.full.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
