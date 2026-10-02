@@ -74,6 +74,7 @@ export function mapAuthError(err, fallback = 'UNKNOWN') {
   const msg = String(err.message || '');
   const status = Number(err.status ?? err.statusCode ?? 0);
 
+  if (/INVALID_ORIGIN/.test(code) || /invalid origin/i.test(msg)) return fail('UNKNOWN', ORIGIN_MESSAGE);
   if (status === 429 || /RATE|TOO_MANY/.test(code)) return fail('RATE_LIMITED');
   if (/INVALID_EMAIL_OR_PASSWORD|INVALID_PASSWORD|INVALID_CREDENTIALS|USER_NOT_FOUND/.test(code)) return fail('INVALID_CREDENTIALS');
   if (/EMAIL_NOT_VERIFIED/.test(code)) return fail('EMAIL_NOT_VERIFIED');
@@ -90,7 +91,13 @@ export function mapAuthError(err, fallback = 'UNKNOWN') {
   return fail(fallback);
 }
 
+// Neon Auth refuses sign-ins from a domain missing from its trusted domains
+// (Neon console -> Auth -> Configuration -> Domains).
+const ORIGIN_MESSAGE = 'Sign-in is not enabled for this web address yet. Contact your timetable admin.';
+
+// The SDK throws (rather than returns) some server refusals, e.g. INVALID_ORIGIN.
 function networkOrUnknown(err) {
+  if (/invalid origin/i.test(String(err?.message))) return fail('UNKNOWN', ORIGIN_MESSAGE);
   if (err instanceof TypeError || /fetch|network/i.test(String(err?.message))) return fail('NETWORK');
   return fail('UNKNOWN');
 }
@@ -190,13 +197,43 @@ const REVOKED_CODES = new Set(['ACCOUNT_REVOKED', 'SESSION_REVOKED']);
 
 let forcedOut = false;
 
+// Where this page sends signed-out people: '/login.html', or '/cms/login' on the
+// CMS. Set by requireUser({ loginPath }).
+let loginPage = '/login.html';
+
 /** Sign out locally and land on the login page with a reason ('revoked' | 'expired'). */
 async function forceSignOut(reason) {
   if (forcedOut) return;
   forcedOut = true;
   stopSessionWatch();
   await signOut();
-  if (typeof location !== 'undefined') location.replace(`/login.html?reason=${encodeURIComponent(reason)}`);
+  if (typeof location !== 'undefined') location.replace(`${loginPage}?reason=${encodeURIComponent(reason)}`);
+}
+
+// ------------------------------------------------------------- admin hint
+
+// A UI hint only, never a permission: "an admin was signed in on this browser".
+// The CMS reads it before any network call so a signed-out visitor goes
+// straight to /cms/login instead of seeing the CMS loading screen first. The
+// server still checks the admin role on every request.
+const ADMIN_HINT_KEY = 'ttd.admin';
+
+function rememberRole(user) {
+  try {
+    if (user?.role === 'admin' && user.status === 'approved') localStorage.setItem(ADMIN_HINT_KEY, '1');
+    else localStorage.removeItem(ADMIN_HINT_KEY);
+  } catch {
+    /* storage blocked: the CMS just takes the slower path */
+  }
+}
+
+/** True when an admin was last seen signed in on this browser. */
+export function adminHint() {
+  try {
+    return localStorage.getItem(ADMIN_HINT_KEY) === '1';
+  } catch {
+    return true; // can't tell: let the real session check decide
+  }
 }
 
 /** apiFetch without the revoked-account sign-out (used by signIn / signUp). */
@@ -243,7 +280,9 @@ async function rawApiFetch(path, init = {}) {
 /** The signed-in user (GET /api/me shape) or null. */
 export async function getCurrentUser() {
   const res = await apiFetch('/me');
-  return res.ok && res.data?.user ? res.data.user : null;
+  const user = res.ok && res.data?.user ? res.data.user : null;
+  if (user || res.status === 401) rememberRole(user);
+  return user;
 }
 
 function validateEmail(email) {
@@ -268,7 +307,10 @@ export async function signIn({ email, password } = {}) {
   tokenCache = null;
   forcedOut = false;
   const res = await rawApiFetch('/me');
-  if (res.ok && res.data?.user) return { ok: true, user: res.data.user };
+  if (res.ok && res.data?.user) {
+    rememberRole(res.data.user);
+    return { ok: true, user: res.data.user };
+  }
   if (REVOKED_CODES.has(res.error?.code)) {
     // Don't leave a Neon session behind for an account that may not use it.
     await signOut();
@@ -344,6 +386,7 @@ export async function resendVerificationEmail({ email } = {}) {
 export async function signOut() {
   stopSessionWatch();
   tokenCache = null;
+  rememberRole(null);
   try {
     const client = await getClient();
     await client.signOut();
@@ -406,15 +449,16 @@ export function postSignInDestination(user, search = location.search) {
 
 /**
  * Page guard. Redirects and resolves null, or resolves the user.
- *   not signed in            -> /login.html?next=<this page>
+ *   not signed in            -> <loginPath>?next=<this page> (default /login.html)
  *   not approved             -> /pending.html (unless allowPending)
  *   role 'admin' but student -> /app.html
  */
-export async function requireUser({ role, allowPending = false } = {}) {
+export async function requireUser({ role, allowPending = false, loginPath = '/login.html' } = {}) {
+  loginPage = loginPath;
   const user = await getCurrentUser();
   if (!user) {
-    const here = location.pathname + location.search;
-    location.replace(`/login.html?next=${encodeURIComponent(here)}`);
+    const here = location.pathname + location.search + (location.hash || '');
+    location.replace(`${loginPath}?next=${encodeURIComponent(here)}`);
     return null;
   }
   if (user.status !== 'approved' && !allowPending) {
@@ -438,8 +482,8 @@ let watch = null;
  * Keep re-checking /api/me while a gated page is open (every minute, and when
  * the tab becomes visible again), so a revoked user is signed out even on a tab
  * they are not touching. requireUser() starts this; pages need not call it.
- *   revoked / signed out by admin -> sign out, /login.html?reason=revoked
- *   no longer signed in           -> /login.html?reason=expired
+ *   revoked / signed out by admin -> sign out, <login page>?reason=revoked
+ *   no longer signed in           -> <login page>?reason=expired
  *   no longer approved            -> /pending.html (unless allowPending)
  *   no longer admin (admin pages) -> /app.html
  * Network errors and 429s are ignored: the next tick tries again.

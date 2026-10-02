@@ -331,7 +331,7 @@ export function select(options, value, attrs = {}) {
 export async function api(path, init) {
   const res = await apiFetch(path, init);
   if (!res.ok && res.status === 401) {
-    location.replace(`/login.html?next=${encodeURIComponent(location.pathname + location.hash)}`);
+    location.replace(`/cms/login?next=${encodeURIComponent(location.pathname + location.hash)}`);
   } else if (!res.ok && res.status === 403 && ['NOT_ADMIN', 'NOT_APPROVED', 'ACCOUNT_REVOKED'].includes(res.error?.code)) {
     location.replace(res.error.code === 'NOT_ADMIN' ? '/app.html' : '/pending.html');
   }

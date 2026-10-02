@@ -6,7 +6,7 @@ import {
   pageHead, select, skeleton, statTile, table, toast,
 } from '../ui.js';
 import { formatBytes, formatDateTime, formatNumber, meetingLabel, plural } from '../format.js';
-import { deleteTimetable, editTimetable } from './timetables.js';
+import { confirmReplace, deleteTimetable, editTimetable, fileProblem, putFile, replacedSummary } from './timetables.js';
 
 const PAGE = 150;
 
@@ -42,12 +42,32 @@ function draw(ctx, host, data) {
     draw(ctx, host, { ...data, timetable: { ...t, ...res.data.timetable } });
   });
 
+  // Upload a new version of this timetable's file over the current one.
+  const fileInput = h('input', { type: 'file', accept: '.xlsx,.xls', class: 'visually-hidden', 'aria-label': 'New timetable file' });
+  const replaceBtn = button('Replace File', { icon: 'upload', onClick: () => fileInput.click() });
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    fileInput.value = '';
+    if (!file) return;
+    const problem = fileProblem(file);
+    if (problem) return toast(problem, 'bad');
+    if (!(await confirmReplace({ ...t, schedules: st.schedules }, file))) return;
+    const res = await busy(replaceBtn, () => putFile(t, file));
+    if (!res.ok) return toast(res.error.message, 'bad');
+    toast(replacedSummary(res.data, file));
+    if (!ctx.isCurrent()) return;
+    clear(ctx.view);
+    render(ctx); // reload sections, stats and parser notes from the new file
+  });
+
   const head = pageHead({
     back: { href: '#/timetables', label: 'All Timetables' },
     eyebrow: [t.department, t.semester].filter(Boolean).join(' · ') || 'Timetable',
     title: t.title || t.fileName || 'Untitled',
     actions: [
       linkButton('Course Demand', `#/demand?t=${t.id}`, { icon: 'chart' }),
+      replaceBtn,
+      fileInput,
       button('Edit', { icon: 'pencil', onClick: () => editTimetable(t, ctx, (u) => draw(ctx, host, { ...data, timetable: { ...t, ...u } })) }),
       button('Delete', { icon: 'trash', variant: 'danger', onClick: () => deleteTimetable({ ...t, schedules: st.schedules }, () => ctx.go('#/timetables')) }),
       toggle,

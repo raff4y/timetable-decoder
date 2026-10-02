@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Admin Log In · Timetable Decoder CMS</title>
+<meta name="description" content="Log in to the Timetable Decoder admin CMS." />
+<meta name="theme-color" content="#0aa0cf" />
+<meta name="robots" content="noindex" />
+<link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png" />
+<link rel="apple-touch-icon" href="/brand/favicon-180.png" />
+<link rel="stylesheet" href="/src/styles/brand.css" />
+</head>
+<body>
+<div class="auth">
+  <div class="ambient" aria-hidden="true">
+    <div class="dot-grid"></div>
+    <div class="orb orb--cyan"></div>
+    <div class="orb orb--blue"></div>
+  </div>
+
+  <header class="auth-header">
+    <a class="lockup" href="/"><img src="/brand/ss-mark.png" alt="" width="33" height="22" />Timetable Decoder</a>
+    <a class="back-link" href="/">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="m11 18-6-6 6-6"/></svg>
+      Back To Home
+    </a>
+  </header>
+
+  <main class="auth-main">
+    <div class="auth-card glass">
+      <section class="view" aria-labelledby="signin-title">
+        <span class="icon-tile icon-tile--lg">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.4 3.1 8.3 7.5 9.5 4.4-1.2 7.5-5.1 7.5-9.5V6Z"/><path d="m9 12 2 2 4-4"/></svg>
+        </span>
+        <div class="view-head">
+          <h1 id="signin-title" tabindex="-1">Admin Log In</h1>
+          <p>Log in to the CMS to manage users, timetables and the Room Finder.</p>
+        </div>
+        <form id="signin-form" class="view" novalidate>
+          <div class="alert" role="alert" data-alert hidden></div>
+          <div class="fields">
+            <div class="field">
+              <label for="signin-email">Email</label>
+              <input class="input" id="signin-email" name="email" type="email" autocomplete="username" inputmode="email" placeholder="admin@example.com" required />
+            </div>
+            <div class="field">
+              <div class="field-top">
+                <label for="signin-password">Password</label>
+                <a class="text-btn" href="/login.html?view=forgot">Forgot Password?</a>
+              </div>
+              <div class="pw-wrap">
+                <input class="input" id="signin-password" name="password" type="password" autocomplete="current-password" placeholder="Your password" required />
+                <button type="button" class="pw-toggle" aria-controls="signin-password" aria-pressed="false" aria-label="Show password">
+                  <svg class="icon-show" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+                  <svg class="icon-hide" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.6 5.6A9.8 9.8 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.6 3.4"/><path d="M6.4 6.9C3.9 8.6 2.5 12 2.5 12S6 18.5 12 18.5a9.6 9.6 0 0 0 4.6-1.2"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="m3 3 18 18"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+          <button type="submit" class="btn btn--primary btn--block" data-label="Log In" data-busy-label="Logging In">Log In</button>
+          <p class="switch-line">Not An Admin? <a class="text-btn" href="/login.html">Go To The Student Log In</a></p>
+        </form>
+      </section>
+    </div>
+  </main>
+
+  <footer class="auth-footer">A Product By <span class="wordmark">System<span>Solutions</span></span></footer>
+</div>
+
+<script type="module" src="/src/cms/login.js"></script>
+</body>
+</html>

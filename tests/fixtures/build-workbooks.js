@@ -6,7 +6,7 @@ function toBuffer(wb) {
 }
 
 /** Flat "List of Courses" template. */
-export function flatWorkbook({ extraRows = [] } = {}) {
+export function flatWorkbook({ extraRows = [], without = [] } = {}) {
   const rows = [
     ['Time Table [Computer Science] Fall 2026'],
     [],
@@ -19,7 +19,7 @@ export function flatWorkbook({ extraRows = [] } = {}) {
     ['MT1003', 'Calculus', 'B', 'Ms. Sana Iqbal', 'Sat', '9:00 a.m.', 'C-205', ''],
     ['XX0000', 'Broken Row', 'A', 'Nobody', 'Someday', '9:00 AM', 'R1', ''], // unreadable day -> skipped
     ...extraRows,
-  ];
+  ].filter((r) => !without.includes(r[0]));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'List of Courses');
   return toBuffer(wb);

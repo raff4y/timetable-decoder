@@ -9,8 +9,13 @@
     }
   },
   "redirects": [
-    { "source": "/admin.html", "destination": "/cms.html", "permanent": false },
-    { "source": "/admin", "destination": "/cms.html", "permanent": false }
+    { "source": "/cms.html", "destination": "/cms", "permanent": false },
+    { "source": "/admin.html", "destination": "/cms", "permanent": false },
+    { "source": "/admin", "destination": "/cms", "permanent": false }
+  ],
+  "rewrites": [
+    { "source": "/cms", "destination": "/cms/index.html" },
+    { "source": "/cms/login", "destination": "/cms/login.html" }
   ],
   "headers": [
     {

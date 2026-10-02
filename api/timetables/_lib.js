@@ -91,6 +91,43 @@ function uploadFileName(req) {
   return name.replace(/[\u0000-\u001f]/g, '').slice(0, 255);
 }
 
+/**
+ * Read and parse an uploaded workbook (raw bytes + X-Filename header).
+ * Shared by POST /api/timetables (new) and PUT /api/timetables/:id (replace).
+ */
+async function readUpload(req) {
+  // Vercel pre-parses application/octet-stream into req.body and consumes the stream.
+  const declared = Number(headerValue(req, 'content-length'));
+  if (declared > MAX_UPLOAD_BYTES) throw new HttpError(413, 'File too large (max 4 MB)');
+  const body = Buffer.isBuffer(req.body) ? req.body : await readBody(req, MAX_UPLOAD_BYTES);
+  if (body.length > MAX_UPLOAD_BYTES) throw new HttpError(413, 'File too large (max 4 MB)');
+  if (!body.length) throw new HttpError(422, 'The upload was empty');
+
+  const fileName = uploadFileName(req);
+  let parsed;
+  try {
+    parsed = parseWorkbook(body, fileName);
+  } catch (err) {
+    if (err instanceof TimetableParseError) throw new HttpError(422, err.message);
+    console.error('Unexpected parser failure', err);
+    throw new HttpError(422, 'Could not read that file as a timetable.');
+  }
+  const sha = crypto.createHash('sha256').update(body).digest('hex');
+  const explicit = parsed.sections.every((s) => s.meetings.every((m) => m.durMin));
+  return { body, fileName, parsed, sha, explicit };
+}
+
+/** 409 if another timetable already holds this exact file. */
+async function rejectDuplicate(sha, exceptId = null) {
+  const dup = await query('SELECT id, title FROM timetables WHERE file_sha256 = $1 AND id IS DISTINCT FROM $2', [sha, exceptId]);
+  if (dup.rows[0]) {
+    throw new HttpError(409, 'This exact file has already been uploaded', {
+      existingId: dup.rows[0].id,
+      existingTitle: dup.rows[0].title,
+    });
+  }
+}
+
 /** Insert sections + meetings with one multi-row INSERT (unnest) per table. */
 async function insertSections(client, timetableId, sections) {
   const sec = {
@@ -201,34 +238,10 @@ export function createTimetableHandlers(auth) {
         // Parsing a workbook is the most expensive thing the API does.
         await enforce([rule('uploads', user.id)], 'Too many uploads. Wait a few minutes and try again.');
 
-        // Vercel pre-parses application/octet-stream into req.body and consumes the stream.
-        const declared = Number(headerValue(req, 'content-length'));
-        if (declared > MAX_UPLOAD_BYTES) throw new HttpError(413, 'File too large (max 4 MB)');
-        const body = Buffer.isBuffer(req.body) ? req.body : await readBody(req, MAX_UPLOAD_BYTES);
-        if (body.length > MAX_UPLOAD_BYTES) throw new HttpError(413, 'File too large (max 4 MB)');
-        if (!body.length) throw new HttpError(422, 'The upload was empty');
-
-        const fileName = uploadFileName(req);
-        let parsed;
-        try {
-          parsed = parseWorkbook(body, fileName);
-        } catch (err) {
-          if (err instanceof TimetableParseError) throw new HttpError(422, err.message);
-          console.error('Unexpected parser failure', err);
-          throw new HttpError(422, 'Could not read that file as a timetable.');
-        }
-
-        const sha = crypto.createHash('sha256').update(body).digest('hex');
-        const dup = await query('SELECT id, title FROM timetables WHERE file_sha256 = $1', [sha]);
-        if (dup.rows[0]) {
-          throw new HttpError(409, 'This exact file has already been uploaded', {
-            existingId: dup.rows[0].id,
-            existingTitle: dup.rows[0].title,
-          });
-        }
+        const { body, fileName, parsed, sha, explicit } = await readUpload(req);
+        await rejectDuplicate(sha);
 
         const { meta, sections, warnings } = parsed;
-        const explicit = sections.every((s) => s.meetings.every((m) => m.durMin));
         const title = (meta.title || '').slice(0, MAX_FIELD);
 
         let row;
@@ -284,6 +297,73 @@ export function createTimetableHandlers(auth) {
         const sections = await loadSections(row.id);
         const extra = user.role === 'admin' ? { warnings: row.warnings } : {};
         sendJson(res, 200, { timetable: timetableDto(row, extra), sections });
+      },
+
+      /**
+       * Replace a timetable's file in place (raw xlsx bytes, X-Filename header).
+       * Keeps the id, title, department, semester and published state, so
+       * students' saved schedules stay attached; picks of sections the new file
+       * no longer has are dropped by the app when it loads them.
+       */
+      async PUT(req, res) {
+        const admin = await requireAdmin(req);
+        const id = param(req, 'id');
+        if (!isUuid(id)) throw new HttpError(404, 'Timetable not found');
+        const prev = (await query(`SELECT ${LIST_COLUMNS}, file_sha256 FROM timetables WHERE id = $1`, [id])).rows[0];
+        if (!prev) throw new HttpError(404, 'Timetable not found');
+        await enforce([rule('uploads', admin.id)], 'Too many uploads. Wait a few minutes and try again.');
+
+        const { body, fileName, parsed, sha, explicit } = await readUpload(req);
+        if (sha === prev.file_sha256) throw new HttpError(409, 'That file is already the current version of this timetable');
+        await rejectDuplicate(sha, id);
+        const { sections, warnings } = parsed;
+
+        let row;
+        try {
+          row = await tx(async (client) => {
+            const upd = await client.query(
+              `UPDATE timetables
+                  SET template = $2, explicit_durations = $3, section_count = $4, file_name = $5,
+                      file_bytes = $6, file_size = $7, file_sha256 = $8, warnings = $9::jsonb,
+                      uploaded_by = $10, updated_at = now()
+                WHERE id = $1 RETURNING ${LIST_COLUMNS}`,
+              [id, parsed.meta.template, explicit, sections.length, fileName, body, body.length, sha, JSON.stringify(warnings), admin.id]
+            );
+            if (!upd.rows[0]) throw new HttpError(404, 'Timetable not found'); // deleted meanwhile
+            await client.query('DELETE FROM sections WHERE timetable_id = $1', [id]); // meetings cascade
+            await insertSections(client, id, sections);
+            return upd.rows[0];
+          });
+        } catch (err) {
+          if (err && err.code === '23505') throw new HttpError(409, 'This exact file has already been uploaded');
+          throw err;
+        }
+
+        // Saved schedules that picked at least one section the new file dropped.
+        const affected = await query(
+          `SELECT count(*)::int AS n FROM saved_schedules ss
+            WHERE ss.timetable_id = $1
+              AND EXISTS (
+                SELECT 1 FROM unnest(ss.section_keys) AS k(key)
+                 WHERE k.key NOT IN (SELECT code || '|' || section FROM sections WHERE timetable_id = $1))`,
+          [id]
+        );
+        const affectedSchedules = affected.rows[0].n;
+
+        await recordAudit(
+          admin,
+          'timetable.replace',
+          { type: 'timetable', id },
+          `Replaced the file of "${row.title || fileName || 'Untitled'}" (${prev.section_count} -> ${sections.length} sections)`,
+          {
+            fileName: { from: prev.file_name, to: fileName },
+            sectionCount: { from: prev.section_count, to: sections.length },
+            fileSize: body.length,
+            warningCount: warnings.length,
+            affectedSchedules,
+          },
+        );
+        sendJson(res, 200, { timetable: timetableDto(row), warnings, affectedSchedules, previousSectionCount: prev.section_count });
       },
 
       async PATCH(req, res) {

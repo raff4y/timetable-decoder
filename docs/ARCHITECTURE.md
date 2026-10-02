@@ -58,7 +58,7 @@ v1 was a static page that parsed an uploaded xlsx in the browser. v2:
 | **design session** (separate Claude session) | `index.html` (landing), `login.html` (sign in, sign up, forgot password, reset-confirm views), `src/pages/landing.js`, `src/pages/login.js`, `src/styles/brand.css`, `public/**` (brand assets), any assets they add |
 | **platform/auth agent** | `vite.config.js`, `vercel.json`, `.env.example`, `db/migrations/001_*`, `server/auth.js`, `api/me.js`, `api/auth/**`, `api/admin/users*`, `scripts/dev-server.mjs`, `scripts/migrate.mjs`, `scripts/seed-users.mjs`, `src/auth-client.js`, `pending.html` + `src/pages/pending.js`, `tests/auth*` |
 | **timetable-data agent** | `server/parser/**`, `db/migrations/002_*`, `db/migrations/003_*`, `api/timetables/**`, `api/schedules/**`, `tests/parser*`, `tests/timetables*`, `tests/schedules*`, `tests/fixtures/**` |
-| **later front-end pass** | `app.html`, `app.js`, `styles.css`, `admin.html` (now only a redirect to `/cms.html`) |
+| **later front-end pass** | `app.html`, `app.js`, `styles.css`, `admin.html` (now only a redirect to `/cms`) |
 | shared, already written | `package.json` (deps installed; ask before adding), `server/db.js`, `server/http.js` |
 
 `app.html` is the old `index.html` (the timetable tool) renamed; `index.html`
@@ -72,8 +72,9 @@ is now the public landing page.
 | `/login.html` | public | sign in / sign up / forgot password / reset password |
 | `/pending.html` | signed-in, not approved | "waiting for approval" / "rejected" / "disabled" |
 | `/app.html` | approved users | the timetable tool |
-| `/admin.html` | - | redirects to `/cms.html` (kept for old links; `vercel.json` also redirects it) |
-| `/cms.html` | admins | the one admin UI: statistics dashboard, users, timetables, Room Finder accounts, course demand, activity log (see "Admin CMS") |
+| `/admin.html` | - | redirects to `/cms` (kept for old links; `vercel.json` also redirects it and `/cms.html`) |
+| `/cms` | admins | the one admin UI (`cms/index.html`): statistics dashboard, users, timetables, Room Finder accounts, course demand, activity log (see "Admin CMS") |
+| `/cms/login` | public | the CMS's own login (`cms/login.html`, `src/cms/login.js`): same accounts, admins only; anyone else is signed straight back out |
 | `/rooms/login.html` | public | Free Room Finder sign-in (its own accounts, no sign-up) |
 | `/rooms/` `rooms/index.html` | Room Finder accounts | the Free Room Finder (see below) |
 
@@ -273,6 +274,13 @@ All responses are JSON. Errors: `{ "error": "message", "details"?: any }` with
 - `POST /api/timetables` (admin) body = raw xlsx bytes, headers
   `Content-Type: application/octet-stream`, `X-Filename: <name>` ->
   `201 { timetable, warnings }`; `422` if it can't be parsed. Stored unpublished.
+- `PUT /api/timetables/:id` (admin) raw xlsx bytes + `X-Filename`: replace the
+  file in place (new version of the same timetable). Sections are swapped in one
+  transaction; id, title, department, semester and `isPublished` are kept, so
+  saved schedules stay attached (picks of sections the new file lacks are dropped
+  by the app's `restoreSchedule`). 409 if the file is already this timetable's or
+  another's. -> `{ timetable, warnings, affectedSchedules, previousSectionCount }`;
+  audited as `timetable.replace`.
 - `PATCH /api/timetables/:id` (admin) `{ department?, semester?, title?, isPublished? }`
 - `DELETE /api/timetables/:id` (admin)
 - `GET /api/schedules/:timetableId` (approved) -> `{ schedule: { sectionKeys: ['CODE|SECTION', ...], colorAssignments: {...}, updatedAt } | null }`
@@ -402,7 +410,7 @@ links only point at `APP_ORIGIN` / Vercel's own deployment URLs on Vercel, never
 request header; CSP (`script-src 'self'`, `frame-ancestors 'none'`, Neon Auth as the
 only extra `connect-src`), HSTS, COOP/CORP and nosniff headers in `vercel.json`.
 
-## Admin CMS (`/cms.html`)
+## Admin CMS (`/cms`)
 
 A dashboard-style admin console in the System Solutions theme (`brand.css` +
 `src/styles/cms.css`): a grouped sidebar from 1024px up, an off-canvas drawer
@@ -410,7 +418,14 @@ below that, and tables that collapse into cards on phones. Vanilla JS modules
 in `src/cms/` (`main.js` = shell + hash router, `ui.js` = DOM/dialog/API
 helpers, `charts.js` = hand-built SVG charts, `format.js` = pure formatters
 tested in `tests/cms-format.test.js`, `screens/*.js` = one file per screen).
-Gated with `requireUser({ role: 'admin' })`; every call is re-checked server-side.
+Gated with `requireUser({ role: 'admin', loginPath: '/cms/login' })`; every call
+is re-checked server-side. Signed-out visitors go to `/cms/login` (never the
+student `/login.html`). To skip the loading screen for them, auth-client keeps a
+UI-only `localStorage` hint (`ttd.admin`, set when an approved admin is seen,
+cleared on sign-out or a non-admin `/api/me`): with no hint, `/cms` redirects
+before any network call. It grants nothing; the server still checks the role.
+Routing: `vercel.json` rewrites `/cms` and `/cms/login`; `vite.config.js` has a
+dev-server twin for `/cms`.
 
 | route | screen | reads | writes |
 |---|---|---|---|

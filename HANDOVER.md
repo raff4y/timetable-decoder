@@ -19,7 +19,7 @@ who owns which files. [README.md](README.md) has the local-dev and deploy steps.
 | area | files |
 |---|---|
 | Timetable tool | `app.html`, `app.js`, `styles.css`; logic split into `src/app/model.js` (pure), `canvas.js` (drawing), `saver.js` (debounced autosave) |
-| Admin CMS | `cms.html`, `src/cms/**`, `src/styles/cms.css`, read API in `api/admin/_cms.js` (`admin.html` only redirects here) |
+| Admin CMS | `cms/index.html`, `cms/login.html`, `src/cms/**`, `src/styles/cms.css`, read API in `api/admin/_cms.js` (`admin.html` only redirects here) |
 | Auth + API calls from the browser | `src/auth-client.js` (`requireUser`, `apiFetch`, `signOut`) |
 | API | `api/timetables/*`, `api/schedules/*`, `api/admin/users*`, `api/me.js` |
 | Parser | `server/parser/` (flat list + period grid templates) |

@@ -12,9 +12,20 @@ const PAGES = [
   'index.html', 'login.html', 'app.html', 'pending.html', 'admin.html',
   // Free Room Finder: a separate module with its own login (docs/ARCHITECTURE.md).
   'rooms/index.html', 'rooms/login.html',
-  // Admin CMS: dashboard, statistics and management (src/cms/).
-  'cms.html',
+  // Admin CMS at /cms, with its own admin-only login at /cms/login (src/cms/).
+  'cms/index.html', 'cms/login.html',
 ];
+
+// Dev-server twin of the vercel.json rewrites: /cms -> cms/index.html.
+const cmsRoute = {
+  name: 'cms-route',
+  configureServer(server) {
+    server.middlewares.use((req, _res, next) => {
+      if (/^\/cms(?:[?#]|$)/.test(req.url)) req.url = `/cms/${req.url.slice(4)}`;
+      next();
+    });
+  },
+};
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, root, '');
@@ -22,6 +33,7 @@ export default defineConfig(({ mode }) => {
   return {
     root,
     appType: 'mpa',
+    plugins: [cmsRoute],
     build: {
       rollupOptions: {
         input: Object.fromEntries(

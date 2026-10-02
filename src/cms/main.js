@@ -1,4 +1,5 @@
-// cms.html: the admin CMS shell. Admins only (requireUser({ role: 'admin' }));
+// /cms (cms/index.html): the admin CMS shell. Admins only (requireUser({ role: 'admin' }));
+// Signed-out visitors go to the CMS's own login page, /cms/login.
 // every request is checked again server-side. Screens are hash routes so the
 // page is one static file:
 //
@@ -10,7 +11,7 @@
 //   #/rooms                Free Room Finder accounts
 //   #/activity             Audit log of admin changes
 
-import { requireUser, signOut } from '../auth-client.js';
+import { adminHint, requireUser, signOut } from '../auth-client.js';
 import { api, clear, h, icon } from './ui.js';
 import { initials } from './format.js';
 import * as dashboard from './screens/dashboard.js';
@@ -182,8 +183,16 @@ function closeNav() {
 
 // ---------------------------------------------------------------- boot
 
+export const LOGIN_PATH = '/cms/login';
+
 async function boot() {
-  me = await requireUser({ role: 'admin' });
+  // No admin seen on this browser: go to the login page now, before the
+  // loading screen ever shows, rather than after a round trip to the server.
+  if (!adminHint()) {
+    location.replace(`${LOGIN_PATH}?next=${encodeURIComponent(location.pathname + location.hash)}`);
+    return;
+  }
+  me = await requireUser({ role: 'admin', loginPath: LOGIN_PATH });
   if (!me) return; // redirected
 
   navOpen.append(icon('menu', 22));
@@ -211,7 +220,7 @@ async function boot() {
   signOutBtn.addEventListener('click', async () => {
     signOutBtn.disabled = true;
     await signOut();
-    location.replace('/login.html');
+    location.replace(LOGIN_PATH);
   });
   window.addEventListener('hashchange', render);
 

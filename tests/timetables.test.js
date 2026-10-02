@@ -35,7 +35,7 @@ const auth = {
 const tt = createTimetableHandlers(auth);
 const sched = createScheduleHandlers(auth);
 const listHandler = route({ GET: tt.index.GET, POST: tt.index.POST });
-const itemHandler = route({ GET: tt.item.GET, PATCH: tt.item.PATCH, DELETE: tt.item.DELETE });
+const itemHandler = route({ GET: tt.item.GET, PUT: tt.item.PUT, PATCH: tt.item.PATCH, DELETE: tt.item.DELETE });
 const scheduleHandler = route({ GET: sched.GET, PUT: sched.PUT });
 
 /** Invoke a handler with a fake req/res; resolves { status, json }. */
@@ -316,6 +316,52 @@ test('schedules: unpublished and unknown timetables are 404 for students; pendin
     method: 'PUT', user: users.admin, query: hidden, json: { sectionKeys: ['MT1003|CS-B'] },
   });
   assert.equal(adminPut.status, 200);
+});
+
+const replaceFile = (user, id, buffer, name = 'Time Table v2.xlsx') =>
+  call(itemHandler, {
+    method: 'PUT',
+    user,
+    query: { id },
+    raw: buffer,
+    headers: { 'content-type': 'application/octet-stream', 'x-filename': encodeURIComponent(name) },
+  });
+
+test('replacing a timetable file keeps its id, metadata and saved schedules', async () => {
+  const q = { timetableId: flat.id };
+  await call(itemHandler, { method: 'PATCH', user: users.admin, query: { id: flat.id }, json: { title: 'CS Fall 2026', isPublished: true } });
+  await call(scheduleHandler, { method: 'PUT', user: users.other, query: q, json: { sectionKeys: ['CS1002|A', 'MT1003|B'] } });
+  await call(scheduleHandler, { method: 'PUT', user: users.student, query: q, json: { sectionKeys: ['CS1002|A'] } });
+
+  // Admins only; the file must parse; unknown ids are 404.
+  const v2 = flatWorkbook({ without: ['MT1003'], extraRows: [['EE2001', 'Circuits', 'C', 'Dr. Noor', 'Friday', '10:00 AM', 'E-1', '']] });
+  assert.equal((await replaceFile(users.student, flat.id, v2)).status, 403);
+  assert.equal((await replaceFile(users.admin, flat.id, unrelatedWorkbook())).status, 422);
+  assert.equal((await replaceFile(users.admin, '00000000-0000-4000-8000-000000000000', v2)).status, 404);
+  // Same file again, or a file another timetable already holds: 409, nothing changes.
+  assert.equal((await replaceFile(users.admin, flat.id, flatWorkbook())).status, 409);
+  const clash = await replaceFile(users.admin, flat.id, gridWorkbook());
+  assert.equal(clash.status, 409);
+  assert.equal(clash.json.details.existingId, grid.id);
+
+  const res = await replaceFile(users.admin, flat.id, v2);
+  assert.equal(res.status, 200);
+  assert.equal(res.json.timetable.id, flat.id);
+  assert.equal(res.json.timetable.title, 'CS Fall 2026', 'admin edits survive');
+  assert.equal(res.json.timetable.isPublished, true, 'published state survives');
+  assert.equal(res.json.timetable.fileName, 'Time Table v2.xlsx');
+  assert.equal(res.json.previousSectionCount, 3);
+  assert.equal(res.json.affectedSchedules, 1, 'only the schedule that picked MT1003|B');
+
+  const got = await call(itemHandler, { user: users.student, query: { id: flat.id } });
+  const keys = got.json.sections.map((s) => `${s.code}|${s.section}`).sort();
+  assert.deepEqual(keys, ['CL1002|A1', 'CS1002|A', 'EE2001|C']);
+  const saved = await query('SELECT count(*)::int AS n FROM saved_schedules WHERE timetable_id = $1', [flat.id]);
+  assert.equal(saved.rows[0].n, 2, 'saved schedules stay attached');
+  const orphans = await query('SELECT count(*)::int AS n FROM meetings m WHERE NOT EXISTS (SELECT 1 FROM sections s WHERE s.id = m.section_id)');
+  assert.equal(orphans.rows[0].n, 0);
+  const log = await query(`SELECT summary FROM audit_log WHERE action = 'timetable.replace' AND target_id = $1`, [flat.id]);
+  assert.equal(log.rows.length, 1);
 });
 
 test('deleting a timetable cascades to sections, meetings and saved schedules', async () => {

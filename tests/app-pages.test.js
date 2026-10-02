@@ -38,7 +38,7 @@ test('app.html is a module page with no classic scripts or SheetJS', () => {
 
 test('admin.html only redirects to the CMS', () => {
   const html = read('admin.html');
-  assert.match(html, /url=\/cms\.html/);
+  assert.match(html, /url=\/cms"/);
   assert.equal(/src=/.test(html), false);
 });
 

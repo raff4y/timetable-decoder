@@ -137,6 +137,7 @@ const ACTION_LABEL = {
   'user.rename': 'Renamed User',
   'user.preadd': 'Pre-Added User',
   'timetable.upload': 'Uploaded Timetable',
+  'timetable.replace': 'Replaced Timetable File',
   'timetable.publish': 'Published Timetable',
   'timetable.unpublish': 'Unpublished Timetable',
   'timetable.edit': 'Edited Timetable',

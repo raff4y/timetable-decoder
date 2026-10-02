@@ -24,7 +24,7 @@ file ownership) lives in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | `/login.html` | public | sign in, sign up, password reset |
 | `/pending.html` | signed in, not approved | waiting for approval / rejected / disabled |
 | `/app.html` | approved users | the timetable tool |
-| `/cms.html` | admins | admin CMS: approve sign-ups, manage users, pre-add accounts, upload and publish timetables, Room Finder accounts, statistics (`/admin.html` redirects here) |
+| `/cms` | admins | admin CMS (own login at `/cms/login`): approve sign-ups, manage users, pre-add accounts, upload and publish timetables, Room Finder accounts, statistics (`/admin.html` and `/cms.html` redirect here) |
 
 ## Run it locally
 
@@ -44,9 +44,9 @@ npm run dev                     # Vite on http://localhost:5173, proxies /api to
 Open <http://localhost:5173/>, sign up with the email you seeded and verify it:
 that first sign-in links to the pre-approved admin row. More accounts can be
 seeded from a CSV/JSON file (`npm run seed:users -- users.csv`) or pre-added on
-the admin CMS (`/cms.html`).
+the admin CMS (`/cms`).
 
-Then open the admin CMS (`/cms.html`), upload a department timetable (`.xlsx`, up to 4 MB),
+Then open the admin CMS (`/cms`), upload a department timetable (`.xlsx`, up to 4 MB),
 check the parse warnings, and publish it. It appears in the picker on `/app.html`.
 
 Tests and a production build:
@@ -97,7 +97,7 @@ value is baked in at build time, so redeploy after changing it. Run
 
 ```
 app.html, app.js          the timetable tool (entry module)
-cms.html                  admin CMS; logic in src/cms/ (admin.html just redirects here)
+cms/index.html, login.html admin CMS at /cms and its login at /cms/login; logic in src/cms/
 src/app/                  pure logic (model, canvas drawing, autosave)
 src/auth-client.js        sign-in/out, token handling and apiFetch for every page
 api/                      Vercel functions (timetables, schedules, users, auth)
