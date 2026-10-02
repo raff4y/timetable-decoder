@@ -1,0 +1,29 @@
+{
+  "name": "timetable-decoder",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "vite",
+    "dev:api": "node scripts/dev-server.mjs",
+    "build": "vite build",
+    "preview": "vite preview",
+    "migrate": "node scripts/migrate.mjs",
+    "seed:users": "node scripts/seed-users.mjs",
+    "rooms:accounts": "node scripts/room-accounts.mjs",
+    "test": "node --test \"tests/**/*.test.js\""
+  },
+  "dependencies": {
+    "@neondatabase/auth": "^0.5.0-beta",
+    "@neondatabase/serverless": "^1.2.0",
+    "jose": "^6.2.12",
+    "pg": "^8.23.1",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "vite": "^8.3.2"
+  }
+}

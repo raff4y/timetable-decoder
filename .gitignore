@@ -16,3 +16,9 @@ desktop.ini
 # Local tooling
 node_modules/
 .vercel/
+
+# Secrets and build output
+.env
+.env.local
+.env.*.local
+dist/

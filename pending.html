@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex" />
+<meta name="theme-color" content="#0aa0cf" />
+<title>Account Status · Timetable Decoder</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png" />
+<link rel="apple-touch-icon" href="/brand/favicon-180.png" />
+<link rel="stylesheet" href="/src/styles/brand.css" />
+</head>
+<body>
+<div class="auth">
+  <div class="ambient" aria-hidden="true">
+    <div class="dot-grid"></div>
+    <div class="orb orb--cyan"></div>
+    <div class="orb orb--blue"></div>
+  </div>
+
+  <header class="auth-header">
+    <a class="lockup" href="/"><img src="/brand/ss-mark.png" alt="" width="33" height="22" />Timetable Decoder</a>
+  </header>
+
+  <main class="auth-main">
+    <div class="auth-card glass">
+      <section class="view status-view" id="status-view" data-status="loading" aria-labelledby="pending-title">
+        <span class="icon-tile icon-tile--lg status-icon">
+          <svg class="for-pending" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
+          <svg class="for-blocked" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5 5 6v5.5c0 4.3 3 7.7 7 9 4-1.3 7-4.7 7-9V6Z"/><path d="M12 9v3.5"/><path d="M12 15.5h.01"/></svg>
+        </span>
+
+        <div class="view-head">
+          <h1 id="pending-title">Checking Your Account</h1>
+          <p id="pending-message" role="status" aria-live="polite">Checking your account status…</p>
+        </div>
+
+        <div class="note account-row">
+          <span class="account-dot" aria-hidden="true"></span>
+          <span class="account-text">
+            <strong id="pending-email">Loading…</strong>
+            <span id="pending-status" data-status="loading">Checking</span>
+          </span>
+        </div>
+
+        <p class="hint" id="pending-hint">This page refreshes on its own. You can leave it open.</p>
+
+        <button id="signout-btn" type="button" class="btn btn--ghost btn--block">Log Out</button>
+      </section>
+    </div>
+  </main>
+
+  <footer class="auth-footer">A Product By <span class="wordmark">System<span>Solutions</span></span></footer>
+</div>
+
+<script type="module" src="/src/pages/pending.js"></script>
+</body>
+</html>

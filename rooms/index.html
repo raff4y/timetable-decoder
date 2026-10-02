@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Free Room Finder</title>
+<meta name="description" content="See which rooms are free right now, or free for any slot you need." />
+<meta name="robots" content="noindex" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%9A%AA%3C/text%3E%3C/svg%3E" />
+<link rel="stylesheet" href="/src/rooms/rooms.css" />
+</head>
+<body>
+<div class="page">
+
+  <header class="site-header">
+    <div class="header-bar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">🚪</span>
+        <div>
+          <h1>Free Room Finder</h1>
+          <p class="tagline">Which rooms are empty right now - and which are free for the slot you need.</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button type="button" class="btn btn-nav" id="clash-open" disabled title="Loading timetables...">
+          <span aria-hidden="true">⚠️</span>
+          <span>Room clashes</span>
+          <span class="pill pill-count" id="clash-count" hidden>0</span>
+        </button>
+        <div class="account-bar" id="account-bar" hidden>
+          <span class="account-name" id="account-name"></span>
+          <button type="button" class="btn btn-quiet btn-sm" id="password-open">Change password</button>
+          <button type="button" class="btn btn-quiet btn-sm" id="signout-btn">Log out</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="split">
+
+    <div class="split-col">
+
+      <section class="panel" id="upload-panel" aria-labelledby="upload-heading">
+        <div class="panel-head">
+          <span class="step-badge">1</span>
+          <h2 id="upload-heading">This semester's timetables</h2>
+        </div>
+        <p class="panel-hint">Departments share rooms, so a room is only really free if <em>no</em> department has booked it. Every timetable published in the Timetable Decoder is merged into one room map. A block is left out.</p>
+
+        <div id="upload-status" class="status-line" role="status" aria-live="polite"></div>
+
+        <ul id="file-list" class="file-list"></ul>
+
+        <div id="coverage" class="coverage" hidden>
+          <div class="coverage-row">
+            <span class="cov-num" id="cov-rooms">0</span>
+            <span class="cov-label">rooms</span>
+            <span class="cov-sep">·</span>
+            <span class="cov-num" id="cov-classes">0</span>
+            <span class="cov-label">weekly classes</span>
+            <span class="cov-sep">·</span>
+            <span class="cov-num" id="cov-files">0</span>
+            <span class="cov-label">timetables</span>
+          </div>
+          <p class="coverage-note" id="cov-note"></p>
+        </div>
+
+        <details class="advanced" id="estimates-box" hidden>
+          <summary>Advanced: class length estimates</summary>
+          <p class="advanced-hint" id="advanced-hint">Some exports list only a start time, so class lengths are estimated. Rooms are held busy for this long after each class starts.</p>
+          <div class="advanced-grid">
+            <label>Theory
+              <input type="number" id="theory-min" min="10" max="300" step="5" value="80" /> min
+            </label>
+            <label>Lab
+              <input type="number" id="lab-min" min="10" max="300" step="5" value="150" /> min
+            </label>
+          </div>
+        </details>
+      </section>
+
+      <section class="panel" id="filter-panel" aria-labelledby="filter-heading" hidden>
+        <div class="panel-head">
+          <span class="step-badge">2</span>
+          <h2 id="filter-heading">Narrow it down</h2>
+        </div>
+
+        <label class="field">
+          <span class="field-label">Search rooms</span>
+          <input type="text" id="room-search" placeholder="e.g. C-3, lab, seminar" autocomplete="off" />
+        </label>
+
+        <div class="field">
+          <span class="field-label">Room type</span>
+          <div class="chip-row" id="kind-row" role="group" aria-label="Room type">
+            <button type="button" class="chip is-on" data-kind="all">All</button>
+            <button type="button" class="chip" data-kind="class">Classrooms</button>
+            <button type="button" class="chip" data-kind="lab">Labs</button>
+          </div>
+        </div>
+
+        <div class="field" id="building-field">
+          <span class="field-label">Building / block</span>
+          <div class="chip-row" id="building-row" role="group" aria-label="Building"></div>
+        </div>
+
+        <div class="field" id="floor-field">
+          <span class="field-label">Floor</span>
+          <div class="chip-row" id="floor-row" role="group" aria-label="Floor"></div>
+        </div>
+
+        <div class="field" id="dept-field">
+          <span class="field-label">Department</span>
+          <div class="chip-row" id="dept-row" role="group" aria-label="Department"></div>
+          <p class="field-note">Rooms that department's timetable books - handy when you want to stay near your own classes.</p>
+        </div>
+
+        <div class="field">
+          <span class="field-label">Group results by</span>
+          <div class="chip-row" id="group-row" role="group" aria-label="Group results by">
+            <button type="button" class="chip is-on" data-group="building">Building</button>
+            <button type="button" class="chip" data-group="floor">Floor</button>
+            <button type="button" class="chip" data-group="dept">Department</button>
+            <button type="button" class="chip" data-group="none">Flat list</button>
+          </div>
+        </div>
+
+        <label class="check">
+          <input type="checkbox" id="show-busy" />
+          <span>Also list the busy rooms and when they free up</span>
+        </label>
+      </section>
+
+    </div>
+
+    <div class="split-col">
+
+      <section class="panel" id="result-panel" aria-labelledby="result-heading" hidden>
+        <div class="panel-head">
+          <span class="step-badge">3</span>
+          <h2 id="result-heading">Free rooms</h2>
+        </div>
+
+        <div class="tabs" role="tablist" aria-label="Search mode">
+          <button type="button" class="tab is-on" id="tab-now" role="tab" aria-selected="true">Free right now</button>
+          <button type="button" class="tab" id="tab-slot" role="tab" aria-selected="false">Free for a slot</button>
+        </div>
+
+        <div class="query-box" id="query-now">
+          <div class="now-line">
+            <span class="now-clock" id="now-clock">--</span>
+            <button type="button" class="btn btn-quiet btn-sm" id="now-refresh">Refresh</button>
+          </div>
+          <label class="check">
+            <input type="checkbox" id="now-override" />
+            <span>Use a different day / time</span>
+          </label>
+          <div class="query-grid" id="now-override-grid" hidden>
+            <label class="field">
+              <span class="field-label">Day</span>
+              <select id="now-day"></select>
+            </label>
+            <label class="field">
+              <span class="field-label">Time</span>
+              <input type="time" id="now-time" />
+            </label>
+          </div>
+          <div class="field">
+            <span class="field-label">Free for at least</span>
+            <div class="chip-row" id="minfree-row" role="group" aria-label="Minimum free minutes">
+              <button type="button" class="chip is-on" data-min="0">Any</button>
+              <button type="button" class="chip" data-min="30">30 min</button>
+              <button type="button" class="chip" data-min="60">1 hr</button>
+              <button type="button" class="chip" data-min="120">2 hr</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="query-box" id="query-slot" hidden>
+          <div class="query-grid">
+            <label class="field">
+              <span class="field-label">Day</span>
+              <select id="slot-day"></select>
+            </label>
+            <label class="field">
+              <span class="field-label">From</span>
+              <input type="time" id="slot-start" value="08:30" />
+            </label>
+            <label class="field">
+              <span class="field-label">For</span>
+              <input type="number" id="slot-dur" min="10" max="600" step="5" value="60" /> min
+            </label>
+          </div>
+          <div class="chip-row" id="dur-row" role="group" aria-label="Quick durations">
+            <button type="button" class="chip" data-dur="30">30 min</button>
+            <button type="button" class="chip" data-dur="60">1 hr</button>
+            <button type="button" class="chip" data-dur="80">80 min</button>
+            <button type="button" class="chip" data-dur="150">2.5 hr</button>
+            <button type="button" class="chip" data-dur="180">3 hr</button>
+          </div>
+          <p class="slot-echo" id="slot-echo"></p>
+        </div>
+
+        <div class="result-head">
+          <p class="result-summary" id="result-summary" role="status" aria-live="polite"></p>
+        </div>
+
+        <div id="free-list" class="room-grid"></div>
+        <p class="empty-hint" id="free-empty" hidden>No room is free for that whole window. Try a shorter slot, a different time, or widen the filters.</p>
+
+        <div id="busy-block" hidden>
+          <h3 class="sub-head">Busy <span class="pill" id="busy-count">0</span></h3>
+          <div id="busy-list" class="room-grid busy-grid"></div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <p>Room availability is only as complete as the published timetables - a room with no classes in any of them shows as free all day.</p>
+  </footer>
+</div>
+
+<div class="modal" id="room-modal" hidden>
+  <div class="modal-scrim" data-close-room></div>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="room-modal-title">
+    <div class="modal-head">
+      <h2 id="room-modal-title">Room</h2>
+      <button type="button" class="btn btn-quiet btn-sm" id="room-close">Close</button>
+    </div>
+    <div class="modal-body" id="room-modal-body"></div>
+  </div>
+</div>
+
+<div class="modal" id="clash-modal" hidden>
+  <div class="modal-scrim" data-close-clash></div>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="clash-modal-title">
+    <div class="modal-head">
+      <h2 id="clash-modal-title">Rooms booked twice</h2>
+      <button type="button" class="btn btn-quiet btn-sm" id="clash-close">Close</button>
+    </div>
+    <div class="modal-body">
+      <p class="panel-hint">Two classes in the same room at the same time - usually two departments that scheduled around each other, or the same class listed in two files. Either way, treat these rooms as taken.</p>
+      <div id="clash-list"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="password-modal" hidden>
+  <div class="modal-scrim" data-close-password></div>
+  <div class="modal-card modal-card--narrow" role="dialog" aria-modal="true" aria-labelledby="password-modal-title">
+    <div class="modal-head">
+      <h2 id="password-modal-title">Change password</h2>
+      <button type="button" class="btn btn-quiet btn-sm" id="password-close">Close</button>
+    </div>
+    <form class="modal-body" id="password-form" novalidate>
+      <p class="panel-hint">Other devices signed in to this account will be signed out.</p>
+      <label class="field">
+        <span class="field-label">Current password</span>
+        <input type="password" id="pw-current" autocomplete="current-password" required />
+      </label>
+      <label class="field">
+        <span class="field-label">New password</span>
+        <input type="password" id="pw-new" autocomplete="new-password" minlength="8" required />
+      </label>
+      <label class="field">
+        <span class="field-label">Confirm new password</span>
+        <input type="password" id="pw-confirm" autocomplete="new-password" required />
+      </label>
+      <p class="status-line" id="password-status" role="status" aria-live="polite"></p>
+      <button type="submit" class="btn btn-primary" id="password-submit">Update password</button>
+    </form>
+  </div>
+</div>
+
+<script type="module" src="/src/rooms/pages/app.js"></script>
+</body>
+</html>

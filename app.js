@@ -1,1735 +1,892 @@
-(function () {
-  'use strict';
+// The timetable tool (app.html). Timetables are parsed and stored server-side;
+// this page lets a signed-in student pick one, choose sections, see conflicts,
+// and export a PNG. Chosen sections are saved to their account.
+//
+// Pure logic lives in src/app/model.js, drawing in src/app/canvas.js and the
+// debounced autosave in src/app/saver.js.
 
-  var PALETTE = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948'];
-  var CANVAS_BG = '#fcfcfb';
-  var CANVAS_GRIDLINE = '#e1e0d9';
-  var CANVAS_INK = '#0b0b0b';
-  var CANVAS_MUTED = '#898781';
-  var FONT_STACK = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+import { requireUser, apiFetch, signOut } from './src/auth-client.js';
+import {
+  WEEKDAYS,
+  DEFAULT_THEORY_MIN,
+  DEFAULT_LAB_MIN,
+  ColorBook,
+  sectionKey,
+  sectionMeetingSummary,
+  adaptSections,
+  allDurationsExplicit,
+  serializeSchedule,
+  restoreSchedule,
+  groupTimetables,
+  timetableOptionLabel,
+  GENERIC_EXAMPLES,
+  pickExamples,
+  hasReviewLink,
+  reviewSearchName,
+  reviewUrl,
+  courseGroups,
+  resolveQuickAddToken,
+  matchesFilter,
+  teacherCatalog,
+  teacherInitials,
+  sectionCatalog,
+  selectedEvents,
+  findConflicts,
+  fmtMinutes,
+} from './src/app/model.js';
+import { renderTimetable } from './src/app/canvas.js';
+import { createSaver } from './src/app/saver.js';
 
-  var WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-  var DAY_PREFIXES = {
-    mon: 0, tue: 1, tues: 1, wed: 2, thu: 3, thur: 3, thurs: 3, fri: 4, sat: 5, sun: 6
-  };
+const CAMPUSES = ['Islamabad', 'Karachi', 'Lahore', 'Peshawar', 'Chiniot-Faisalabad'];
+const CAMPUS_STORAGE_KEY = 'td.reviewCampus';
+const TIMETABLE_STORAGE_KEY = 'td.timetableId';
+const SAVE_DELAY_MS = 800;
 
-  var HEADER_COLS = ['code', 'course', 'section', 'teacher', 'day', 'time', 'room', 'batch'];
-  var REQUIRED_COLS = ['code', 'course', 'section', 'teacher', 'day', 'time', 'room'];
+const $ = (id) => document.getElementById(id);
+const page = $('page');
+const userName = $('user-name');
+const adminLink = $('admin-link');
+const signOutBtn = $('signout-btn');
+const timetableSelect = $('timetable-select');
+const pickerStatus = $('picker-status');
+const pickerRetry = $('picker-retry');
+const pickerAdminLink = $('picker-admin-link');
+const buildPanel = $('build-panel');
+const imagePanel = $('image-panel');
+const timetableSummary = $('timetable-summary');
+const courseSearch = $('course-search');
+const searchResults = $('search-results');
+const quickAddInput = $('quick-add-input');
+const quickAddExample = $('quick-add-example');
+const quickAddResolve = $('quick-add-resolve');
+const quickAddFeedback = $('quick-add-feedback');
+const selectedList = $('selected-list');
+const selectedCount = $('selected-count');
+const emptySelectedHint = $('empty-selected-hint');
+const saveStatus = $('save-status');
+const saveRetry = $('save-retry');
+const conflictBanner = $('conflict-banner');
+const conflictText = $('conflict-text');
+const theoryMinInput = $('theory-min');
+const labMinInput = $('lab-min');
+const canvas = $('timetable-canvas');
+const downloadBtn = $('download-btn');
+const browseModal = $('browse-modal');
+const browseOpenBtn = $('browse-open');
+const browseCloseBtn = $('browse-close');
+const browseDoneBtn = $('browse-done');
+const browseFootCount = $('browse-foot-count');
+const browseStats = $('browse-stats');
+const browseContent = $('browse-content');
+const browseFilter = $('browse-filter');
+const browseJump = $('browse-jump');
+const browseJumpLabel = $('browse-jump-label');
+const tabCourses = $('tab-courses');
+const tabTeachers = $('tab-teachers');
+const tabSections = $('tab-sections');
+const campusSelect = $('campus-select');
+const advancedHint = document.querySelector('.advanced-hint');
+const defaultAdvancedHint = advancedHint.textContent;
 
-  var NUCESRATE_SEARCH = 'https://nucesrate.vercel.app/professors';
-  var CAMPUSES = ['Islamabad', 'Karachi', 'Lahore', 'Peshawar', 'Chiniot-Faisalabad'];
-  var CAMPUS_STORAGE_KEY = 'td.reviewCampus';
+const state = {
+  user: null,
+  timetables: [],
+  timetableId: null,
+  meta: null,
+  examples: null,
+  sections: [],
+  selected: new Map(),
+  colors: new ColorBook(),
+  saveEnabled: false,
+  browseView: 'courses',
+  reviewCampus: '',
+};
 
-  var $ = function (id) { return document.getElementById(id); };
-  var fileInput = $('file-input');
-  var dropzone = $('dropzone');
-  var uploadStatus = $('upload-status');
-  var buildPanel = $('build-panel');
-  var imagePanel = $('image-panel');
-  var fileSummary = $('file-summary');
-  var courseSearch = $('course-search');
-  var searchResults = $('search-results');
-  var quickAddInput = $('quick-add-input');
-  var quickAddExample = $('quick-add-example');
-  var quickAddResolve = $('quick-add-resolve');
-  var quickAddFeedback = $('quick-add-feedback');
-  var selectedList = $('selected-list');
-  var selectedCount = $('selected-count');
-  var emptySelectedHint = $('empty-selected-hint');
-  var conflictBanner = $('conflict-banner');
-  var conflictText = $('conflict-text');
-  var theoryMinInput = $('theory-min');
-  var labMinInput = $('lab-min');
-  var canvas = $('timetable-canvas');
-  var downloadBtn = $('download-btn');
-  var browseModal = $('browse-modal');
-  var browseOpenBtn = $('browse-open');
-  var browseCloseBtn = $('browse-close');
-  var browseDoneBtn = $('browse-done');
-  var browseFootCount = $('browse-foot-count');
-  var browseStats = $('browse-stats');
-  var browseContent = $('browse-content');
-  var browseFilter = $('browse-filter');
-  var browseJump = $('browse-jump');
-  var browseJumpLabel = $('browse-jump-label');
-  var tabCourses = $('tab-courses');
-  var tabTeachers = $('tab-teachers');
-  var tabSections = $('tab-sections');
-  var campusSelect = $('campus-select');
-  var advancedHint = document.querySelector('.advanced-hint');
-  var defaultAdvancedHint = advancedHint.textContent;
+// ------------------------------------------------------------- small helpers
 
-  var state = {
-    meta: null,
-    examples: null,
-    sections: [],
-    selected: new Map(),
-    colorAssignments: new Map(),
-    nextColorSlot: 0,
-    browseView: 'courses',
-    reviewCampus: ''
-  };
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
 
+function storageGet(key) {
   try {
-    var savedCampus = window.localStorage.getItem(CAMPUS_STORAGE_KEY);
-    if (savedCampus && CAMPUSES.indexOf(savedCampus) !== -1) state.reviewCampus = savedCampus;
-  } catch (e) {}
-
-  function sectionKey(sec) { return sec.code + '|' + sec.section; }
-
-  function baseNameKey(name) {
-
-    return String(name).replace(/\s*[-–-]?\s*\(?\blab\b\)?\s*$/i, '').trim().toLowerCase();
-  }
-
-  function colorForSection(sec) {
-    var key = baseNameKey(sec.name);
-    var slot = state.colorAssignments.get(key);
-    if (slot === undefined) {
-      slot = state.nextColorSlot++;
-      state.colorAssignments.set(key, slot);
-    }
-    var hex = PALETTE[slot % PALETTE.length];
-    var pass = Math.floor(slot / PALETTE.length);
-    if (pass > 0) hex = shadeHex(hex, pass % 2 === 1 ? 0.18 : -0.18);
-    return hex;
-  }
-
-  function el(tag, className, text) {
-    var node = document.createElement(tag);
-    if (className) node.className = className;
-    if (text !== undefined) node.textContent = text;
-    return node;
-  }
-
-  function reviewSearchName(teacher) {
-
-    var name = String(teacher || '').replace(/\([^)]*\)/g, '');
-    var honorific = /^\s*(?:dr|mr|mrs|ms|miss|prof|professor|engr|sir|madam|mam)\b\.?\s+/i;
-    while (honorific.test(name)) name = name.replace(honorific, '');
-    return name.replace(/\s+/g, ' ').trim();
-  }
-
-  function hasReviewLink(teacher) {
-    var name = reviewSearchName(teacher);
-    if (name.length < 2) return false;
-
-    if (/^(tba|tbd|n\/?a|staff)$/i.test(name)) return false;
-    if (/^(lab\s*(engineer|instructor|attendant)|teaching\s*assistant|ta|visiting\s*faculty|to\s*be\s*(announced|decided))\b/i.test(name)) return false;
-    return true;
-  }
-
-  function reviewUrl(teacher) {
-    var url = NUCESRATE_SEARCH + '?pg=1&prof=' + encodeURIComponent(reviewSearchName(teacher));
-    if (state.reviewCampus) url += '&campus=' + encodeURIComponent(state.reviewCampus);
-    return url;
-  }
-
-  function reviewLink(teacher, label) {
-    if (!hasReviewLink(teacher)) return null;
-    var a = el('a', 'prof-link');
-    a.href = reviewUrl(teacher);
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    a.appendChild(el('span', 'prof-link-text', label || 'Reviews'));
-    a.appendChild(el('span', 'prof-link-arrow', '↗'));
-    a.setAttribute('aria-label', 'See student reviews for ' + reviewSearchName(teacher) + ' on NUCESRate (opens in a new tab)');
-    a.title = a.getAttribute('aria-label');
-
-    a.addEventListener('click', function (ev) { ev.stopPropagation(); });
-    return a;
-  }
-
-  function hexToRgb(hex) {
-    var m = /^#?([0-9a-f]{6})$/i.exec(hex);
-    var n = parseInt(m[1], 16);
-    return [n >> 16 & 255, n >> 8 & 255, n & 255];
-  }
-
-  function shadeHex(hex, amount) {
-
-    var rgb = hexToRgb(hex);
-    var target = amount > 0 ? 255 : 0;
-    var f = Math.abs(amount);
-    var out = rgb.map(function (c) { return Math.round(c + (target - c) * f); });
-    return '#' + out.map(function (c) { return c.toString(16).padStart(2, '0'); }).join('');
-  }
-
-  function relativeLuminance(hex) {
-    var rgb = hexToRgb(hex).map(function (c) {
-      c /= 255;
-      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-    });
-    return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
-  }
-
-  function contrastRatio(l1, l2) {
-    var hi = Math.max(l1, l2), lo = Math.min(l1, l2);
-    return (hi + 0.05) / (lo + 0.05);
-  }
-
-  function labelColorOn(fillHex) {
-    var l = relativeLuminance(fillHex);
-    return contrastRatio(l, 1) >= contrastRatio(l, relativeLuminance(CANVAS_INK))
-      ? '#ffffff' : CANVAS_INK;
-  }
-
-  function parseTimeToMinutes(raw) {
-    var s = String(raw).trim();
-    var m = /^(\d{1,2}):(\d{2})\s*([ap])\.?\s*m\.?/i.exec(s);
-    if (m) {
-      var h = parseInt(m[1], 10) % 12;
-      if (m[3].toLowerCase() === 'p') h += 12;
-      return h * 60 + parseInt(m[2], 10);
-    }
-    m = /^(\d{1,2}):(\d{2})\s*$/.exec(s);
-    if (m) {
-      var h24 = parseInt(m[1], 10), min = parseInt(m[2], 10);
-
-      if (h24 >= 1 && h24 < 7) h24 += 12;
-      return h24 * 60 + min;
-    }
+    return window.localStorage.getItem(key);
+  } catch {
     return null;
   }
+}
 
-  function parseDay(raw) {
-    var s = String(raw).trim().toLowerCase();
-    if (!s) return null;
-    for (var prefix in DAY_PREFIXES) {
-      if (s.slice(0, prefix.length) === prefix) return DAY_PREFIXES[prefix];
-    }
-    return null;
+function storageSet(key, value) {
+  try {
+    if (value === null) window.localStorage.removeItem(key);
+    else window.localStorage.setItem(key, value);
+  } catch {
+    /* storage unavailable: the choice just isn't remembered */
   }
-
-  function fmtMinutes(min) {
-    var h = Math.floor(min / 60), m = min % 60;
-    var suffix = h < 12 ? 'am' : 'pm';
-    var h12 = ((h + 11) % 12) + 1;
-    return h12 + ':' + String(m).padStart(2, '0') + suffix;
-  }
-
-  function fmtHourLabel(hour) {
-    var h12 = ((hour + 11) % 12) + 1;
-    return h12 + (hour < 12 ? ' AM' : ' PM');
-  }
-
-  function getTheoryMin() {
-    var v = parseInt(theoryMinInput.value, 10);
-    return isFinite(v) && v > 0 ? v : 80;
-  }
-
-  function getLabMin() {
-    var v = parseInt(labMinInput.value, 10);
-    return isFinite(v) && v > 0 ? v : 150;
-  }
-
-  function meetingIsLab(sec, meeting) {
-    return sec.nameIsLab || /lab/i.test(meeting.room);
-  }
-
-  function meetingDuration(sec, meeting) {
-
-    if (meeting.durMin) return meeting.durMin;
-    return meetingIsLab(sec, meeting) ? getLabMin() : getTheoryMin();
-  }
-
-  function sectionMeetingSummary(sec) {
-    var abbrs = sec.meetings.map(function (m) { return WEEKDAYS[m.dayIdx].slice(0, 3); });
-    var times = sec.meetings.map(function (m) { return m.rawTime; });
-    var allSameTime = times.every(function (t) { return t === times[0]; });
-    var summary = allSameTime && times.length
-      ? abbrs.join('/') + ' ' + times[0]
-      : sec.meetings.map(function (m, i) { return abbrs[i] + ' ' + m.rawTime; }).join(', ');
-    var rooms = sec.meetings.map(function (m) { return m.room; }).filter(Boolean);
-    var uniqueRooms = rooms.filter(function (r, i) { return rooms.indexOf(r) === i; });
-    if (uniqueRooms.length === 1) summary += ' · ' + uniqueRooms[0];
-    return summary;
-  }
-
-  function findHeaderRow(rows) {
-    var best = null;
-    var limit = Math.min(rows.length, 10);
-    for (var i = 0; i < limit; i++) {
-      var row = rows[i] || [];
-      var colMap = {};
-      var score = 0;
-      for (var c = 0; c < row.length; c++) {
-        var cell = String(row[c]).trim().toLowerCase();
-        if (HEADER_COLS.indexOf(cell) !== -1 && colMap[cell] === undefined) {
-          colMap[cell] = c;
-          if (REQUIRED_COLS.indexOf(cell) !== -1) score++;
-        }
-      }
-      if (!best || score > best.score) best = { rowIdx: i, score: score, colMap: colMap };
-    }
-    return best && best.score >= 5 &&
-      best.colMap.day !== undefined && best.colMap.time !== undefined ? best : null;
-  }
-
-  function finishSections(byKey, emptyError) {
-    var sections = Array.from(byKey.values());
-    sections.forEach(function (sec) {
-      sec.meetings.sort(function (a, b) { return (a.dayIdx - b.dayIdx) || (a.startMin - b.startMin); });
-    });
-    sections.sort(function (a, b) {
-      return a.code.localeCompare(b.code) || a.section.localeCompare(b.section);
-    });
-    if (!sections.length) throw new Error(emptyError);
-    return sections;
-  }
-
-  function findSemester(title, fileName) {
-    var re = /(spring|summer|fall|winter)\s*[-']?\s*(\d{4})/i;
-    var m = re.exec(title) || re.exec(fileName || '');
-    return m ? m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase() + ' ' + m[2] : '';
-  }
-
-  function titleAboveRow(rows, rowIdx) {
-    var title = '';
-    for (var t = 0; t < rowIdx; t++) {
-      (rows[t] || []).forEach(function (cell) {
-        var s = String(cell).trim();
-        if (s.length > title.length) title = s;
-      });
-    }
-    return title;
-  }
-
-  function parseFlatSheet(sheet, fileName) {
-    var col = sheet.header.colMap;
-    var rows = sheet.rows;
-
-    var title = titleAboveRow(rows, sheet.header.rowIdx);
-    var deptMatch = /\[([^\]]+)\]/.exec(title);
-    var meta = {
-      title: title,
-      department: deptMatch ? deptMatch[1].trim() : '',
-      semester: findSemester(title, fileName),
-      fileName: fileName || ''
-    };
-
-    var byKey = new Map();
-    for (var i = sheet.header.rowIdx + 1; i < rows.length; i++) {
-      var row = rows[i] || [];
-      var code = String(row[col.code] || '').trim();
-      var name = String(row[col.course] || '').trim();
-      var section = String(row[col.section] || '').trim();
-      if (!code || !section) continue;
-
-      var dayIdx = parseDay(row[col.day]);
-      var startMin = parseTimeToMinutes(row[col.time]);
-      if (dayIdx === null || startMin === null) continue;
-
-      var key = code + '|' + section;
-      var sec = byKey.get(key);
-      if (!sec) {
-        sec = {
-          code: code,
-          name: name,
-          section: section,
-          teacher: String(row[col.teacher] || '').trim(),
-          batch: col.batch !== undefined ? String(row[col.batch] || '').trim() : '',
-          nameIsLab: /\blab\b/i.test(name),
-          meetings: []
-        };
-        byKey.set(key, sec);
-      }
-      if (!sec.teacher) sec.teacher = String(row[col.teacher] || '').trim();
-
-      var duplicate = sec.meetings.some(function (m) {
-        return m.dayIdx === dayIdx && m.startMin === startMin;
-      });
-      if (!duplicate) {
-        sec.meetings.push({
-          dayIdx: dayIdx,
-          startMin: startMin,
-          rawTime: String(row[col.time]).trim(),
-          room: String(row[col.room] || '').trim(),
-          durMin: null
-        });
-      }
-    }
-
-    return {
-      meta: meta,
-      sections: finishSections(byKey, 'Found the course-list sheet but no readable rows in it.')
-    };
-  }
-
-  var CLOCK_RE = /(\d{1,2})[:.](\d{2})\s*(a\.?\s*m\.?|p\.?\s*m\.?)?/gi;
-  var RANGE_SEP_RE = /^[\s.]*(?:to|till|until|[-–-])[\s.]*$/i;
-
-  function clockToMinutes(hour, minute, meridiem) {
-    var h = hour;
-    if (meridiem) {
-      h = h % 12;
-      if (/p/i.test(meridiem)) h += 12;
-    } else if (h >= 1 && h < 7) {
-      h += 12;
-    }
-    return h * 60 + minute;
-  }
-
-  function findTimeRange(text) {
-    var s = String(text);
-    CLOCK_RE.lastIndex = 0;
-    var a = CLOCK_RE.exec(s);
-    if (!a) return null;
-    var b = CLOCK_RE.exec(s);
-    if (!b) return null;
-    if (!RANGE_SEP_RE.test(s.slice(a.index + a[0].length, b.index))) return null;
-    var startMin = clockToMinutes(parseInt(a[1], 10), parseInt(a[2], 10), a[3]);
-    var endMin = clockToMinutes(parseInt(b[1], 10), parseInt(b[2], 10), b[3]);
-    while (endMin <= startMin) endMin += 12 * 60;
-    if (endMin - startMin > 8 * 60) return null;
-    return { startMin: startMin, endMin: endMin, index: a.index, end: b.index + b[0].length };
-  }
-
-  function parsePeriodHeader(text) {
-    var s = String(text).trim();
-    if (!s) return null;
-    var range = findTimeRange(s);
-    if (!range) return null;
-    var rest = (s.slice(0, range.index) + s.slice(range.end)).replace(/[\s.:·-]/g, '');
-    return rest ? null : range;
-  }
-
-  function detectGrid(rows) {
-    var limit = Math.min(rows.length, 10);
-    for (var i = 0; i < limit; i++) {
-      var row = rows[i] || [];
-      var periodCols = [];
-      for (var c = 0; c < row.length; c++) {
-        var range = parsePeriodHeader(row[c]);
-        if (range) periodCols.push({ col: c, startMin: range.startMin, endMin: range.endMin });
-      }
-      if (periodCols.length >= 3) {
-
-        var step = (periodCols[1].startMin - periodCols[0].startMin) /
-                   (periodCols[1].col - periodCols[0].col);
-        if (!(step > 0 && step <= 60)) step = 10;
-
-        var dataStart = i + 1;
-        for (var j = i + 1; j < Math.min(rows.length, i + 4); j++) {
-          var cells = (rows[j] || []).map(function (x) { return String(x).trim().toLowerCase(); });
-          if (cells.indexOf('days') !== -1 || cells.indexOf('day') !== -1) {
-            dataStart = j + 1;
-            break;
-          }
-        }
-        return { periodRow: i, periodCols: periodCols, step: step, dataStart: dataStart };
-      }
-    }
-    return null;
-  }
-
-  function periodForCol(grid, c) {
-    var p = grid.periodCols[0];
-    for (var i = 0; i < grid.periodCols.length; i++) {
-      if (grid.periodCols[i].col <= c) p = grid.periodCols[i];
-      else break;
-    }
-    return p;
-  }
-
-  function gridTimeForCol(grid, c) {
-    var p = periodForCol(grid, c);
-    return p.startMin + (c - p.col) * grid.step;
-  }
-
-  var SECTION_TOKEN_RE = /\b([A-Z]{2,6}\d?-\d[A-Za-z]?\d?(?:\/\d[A-Za-z]?\d?)?)\b/;
-
-  function parseGridCellEntries(text) {
-    var s = String(text).replace(/\s+/g, ' ').trim();
-    if (!s) return [];
-
-    var range = findTimeRange(s);
-    if (range) s = (s.slice(0, range.index) + ' ' + s.slice(range.end)).replace(/\s+/g, ' ').trim();
-
-    var groups = [];
-    var paren = /\(([^()]*)\)/g;
-    var m;
-    while ((m = paren.exec(s)) !== null) {
-      groups.push({ section: m[1].trim(), start: m.index, end: paren.lastIndex });
-    }
-
-    var entries = [];
-    var cursor = 0;
-    var lastTitle = '';
-    for (var i = 0; i < groups.length; i++) {
-      var title = s.slice(cursor, groups[i].start).replace(/^[\s&\/,;:-]+/, '').trim() || lastTitle;
-      var tailEnd = i + 1 < groups.length ? groups[i + 1].start : s.length;
-      var tail = s.slice(groups[i].end, tailEnd);
-      cursor = tailEnd;
-      if (i + 1 < groups.length) {
-
-        var joiner = /\s[&\/+]\s/.exec(tail);
-        if (joiner) {
-          cursor = groups[i].end + joiner.index + joiner[0].length;
-          tail = tail.slice(0, joiner.index);
-        }
-      }
-      var teacher = tail.replace(/^[\s:,-]+/, '').replace(/[\s&\/,;:-]+$/, '').trim();
-      lastTitle = title;
-      if (title && groups[i].section) {
-        entries.push({ title: title, section: groups[i].section, teacher: teacher, range: range });
-      }
-    }
-
-    if (!entries.length) {
-
-      var token = SECTION_TOKEN_RE.exec(s);
-      if (token) {
-        var before = s.slice(0, token.index).replace(/[\s()\[\],;:-]+$/, '').trim();
-        var after = s.slice(token.index + token[0].length).replace(/^[\s()\[\],;:-]+/, '').trim();
-        if (before) entries.push({ title: before, section: token[1], teacher: after, range: range });
-      }
-    }
-    return entries;
-  }
-
-  function findCourseListHeader(rows) {
-    var limit = Math.min(rows.length, 6);
-    for (var i = 0; i < limit; i++) {
-      var row = rows[i] || [];
-      var map = {};
-      for (var c = 0; c < row.length; c++) {
-        var cell = String(row[c]).trim().toLowerCase();
-        if (cell === 'code' && map.code === undefined) map.code = c;
-        else if (/^course(\s*(title|name))?$/.test(cell) && map.name === undefined) map.name = c;
-        else if (cell === 'section' && map.section === undefined) map.section = c;
-        else if (/^(instructor(\s*name)?|teacher)$/.test(cell) && map.teacher === undefined) map.teacher = c;
-        else if (/^course\s*short/.test(cell) && map.shortTitle === undefined) map.shortTitle = c;
-        else if (/^instructor\s*short/.test(cell) && map.shortTeacher === undefined) map.shortTeacher = c;
-        else if (/^duration/.test(cell) && map.duration === undefined) map.duration = c;
-        else if (/^offered/.test(cell) && map.batch === undefined) map.batch = c;
-      }
-      if (map.code !== undefined && map.section !== undefined && map.name !== undefined) {
-        return { rowIdx: i, colMap: map };
-      }
-    }
-    return null;
-  }
-
-  function parseGridWorkbook(sheetsData, grids, fileName) {
-    var tight = function (s) { return String(s).replace(/[^a-z0-9]/gi, '').toLowerCase(); };
-
-    var baseSectionKey = function (s) { return tight(s).replace(/([a-z])\d$/, '$1'); };
-
-    var plainTitle = function (s) { return String(s).replace(/\s*\([^)]*\)\s*$/, '').trim(); };
-    var cleanTeacher = function (s) {
-      var t = String(s || '').trim();
-      return /^(added|tba|tbd|n\/?a|-+)$/i.test(t) ? '' : t;
-    };
-
-    var infoByKey = new Map();
-    var infoByBase = new Map();
-    var titleIndex = [];
-    var titleSlot = new Map();
-
-    function indexCourse(info, titles, section) {
-      titles.forEach(function (t) {
-        if (!t) return;
-        var exactKey = tight(t) + '|' + tight(section);
-        if (!infoByKey.has(exactKey)) infoByKey.set(exactKey, info);
-
-        var bk = tight(plainTitle(t));
-        if (!bk) return;
-        var bsk = baseSectionKey(section);
-        if (!infoByBase.has(bk + '|' + bsk)) infoByBase.set(bk + '|' + bsk, info);
-
-        var slot = titleSlot.get(bk);
-        if (slot === undefined) {
-          slot = titleIndex.length;
-          titleSlot.set(bk, slot);
-          titleIndex.push({ key: bk, bySection: new Map(), first: info });
-        }
-        if (!titleIndex[slot].bySection.has(bsk)) titleIndex[slot].bySection.set(bsk, info);
-      });
-    }
-
-    function lookupCourse(title, section) {
-      var exact = infoByKey.get(tight(title) + '|' + tight(section));
-      if (exact) return { info: exact, exact: true };
-
-      var bk = tight(plainTitle(title));
-      var bsk = baseSectionKey(section);
-      var loose = infoByBase.get(bk + '|' + bsk);
-      if (loose) return { info: loose, exact: false };
-
-      var best = null;
-      for (var i = 0; i < titleIndex.length; i++) {
-        var entry = titleIndex[i];
-        if (entry.key.length < 10) continue;
-        if (bk.indexOf(entry.key) !== 0 && entry.key.indexOf(bk) !== 0) continue;
-        if (!best || entry.key.length > best.key.length) best = entry;
-      }
-      if (!best) return null;
-      return { info: best.bySection.get(bsk) || best.first, exact: false };
-    }
-
-    sheetsData.forEach(function (sd) {
-      if (detectGrid(sd.rows)) return;
-      var header = findCourseListHeader(sd.rows);
-      if (!header) return;
-      var map = header.colMap;
-      for (var i = header.rowIdx + 1; i < sd.rows.length; i++) {
-        var row = sd.rows[i] || [];
-        var code = String(row[map.code] || '').trim();
-        var section = String(row[map.section] || '').trim();
-        if (!code || !section) continue;
-        var name = String(row[map.name] || '').trim();
-        var shortTitle = map.shortTitle !== undefined ? String(row[map.shortTitle] || '').trim() : '';
-        indexCourse({
-          code: code,
-          name: name || shortTitle,
-          teacher: map.teacher !== undefined ? cleanTeacher(row[map.teacher]) : '',
-          batch: map.batch !== undefined ? String(row[map.batch] || '').trim() : '',
-          duration: map.duration !== undefined ? (parseInt(row[map.duration], 10) || null) : null
-        }, [shortTitle, name], section);
-      }
-    });
-
-    var byKey = new Map();
-
-    function addMeeting(entry, place) {
-      var found = lookupCourse(entry.title, entry.section);
-      var info = found ? found.info : null;
-      var gridTeacher = cleanTeacher(entry.teacher);
-
-      var teacher = found && found.exact
-        ? (info.teacher || gridTeacher)
-        : (gridTeacher || (info && info.teacher) || '');
-
-      var code = info ? info.code : entry.title;
-      var name = info ? info.name : entry.title;
-      var key = code + '|' + entry.section;
-      var sec = byKey.get(key);
-      if (!sec) {
-        sec = {
-          code: code,
-          name: name,
-          section: entry.section,
-          teacher: teacher,
-          batch: (info && info.batch) || '',
-          nameIsLab: /\blab\b/i.test(name),
-          meetings: []
-        };
-        byKey.set(key, sec);
-      }
-      if (!sec.teacher) sec.teacher = teacher;
-
-      var dup = sec.meetings.some(function (mm) {
-        return mm.dayIdx === place.dayIdx && mm.startMin === place.startMin;
-      });
-      if (dup) return;
-
-      var durMin = null;
-      if (entry.range) durMin = entry.range.endMin - entry.range.startMin;
-      else if (place.span >= 2) durMin = Math.round(place.span * place.step);
-      else if (info && info.duration) durMin = info.duration;
-      else if (place.period && place.period.endMin > place.startMin) {
-        durMin = place.period.endMin - place.startMin;
-      }
-
-      sec.meetings.push({
-        dayIdx: place.dayIdx,
-        startMin: place.startMin,
-        rawTime: fmtMinutes(place.startMin),
-        room: place.room,
-        durMin: durMin
-      });
-    }
-
-    var chosen = grids.filter(function (g) { return /combined/i.test(g.name); });
-    if (!chosen.length) chosen = grids;
-
-    var pending = [];
-    chosen.forEach(function (g) {
-      var grid = g.grid;
-      var rows = g.rows;
-      var firstPeriodCol = grid.periodCols[0].col;
-      var spans = {};
-      (g.ws['!merges'] || []).forEach(function (m) {
-        if (m.s.r === m.e.r) spans[m.s.r + ',' + m.s.c] = m.e.c - m.s.c + 1;
-      });
-
-      var currentDay = null;
-      for (var r = grid.dataStart; r < rows.length; r++) {
-        var row = rows[r] || [];
-        var dayCell = String(row[0] || '').trim();
-        if (dayCell) currentDay = parseDay(dayCell);
-        var room = String(row[1] || '').trim();
-        if (currentDay === null || !room) continue;
-
-        for (var c = Math.max(2, firstPeriodCol); c < row.length; c++) {
-          var entries = parseGridCellEntries(row[c]);
-          if (!entries.length) continue;
-          var span = spans[r + ',' + c] || 1;
-          var period = periodForCol(grid, c);
-          var colStart = gridTimeForCol(grid, c);
-          entries.forEach(function (entry) {
-            pending.push({
-              entry: entry,
-              place: {
-                dayIdx: currentDay,
-                room: room,
-                startMin: entry.range ? entry.range.startMin : colStart,
-                span: span,
-                step: grid.step,
-                period: period
-              }
-            });
-          });
-        }
-      }
-    });
-
-    var statedStarts = [];
-    pending.forEach(function (item) {
-      if (item.entry.range && statedStarts.indexOf(item.entry.range.startMin) === -1) {
-        statedStarts.push(item.entry.range.startMin);
-      }
-    });
-    pending.forEach(function (item) {
-      if (item.entry.range) return;
-      for (var i = 0; i < statedStarts.length; i++) {
-        var drift = Math.abs(statedStarts[i] - item.place.startMin);
-        if (drift > 0 && drift <= item.place.step) {
-          item.place.startMin = statedStarts[i];
-          break;
-        }
-      }
-    });
-    pending.forEach(function (item) { addMeeting(item.entry, item.place); });
-
-    var title = titleAboveRow(chosen[0].rows, chosen[0].grid.periodRow);
-    var bracketed = /\[([^\]]+)\]/.exec(title);
-    var meta = {
-      title: title,
-      department: bracketed ? bracketed[1].trim() : title.replace(/\s*time\s*table.*$/i, '').trim(),
-      semester: findSemester(title, fileName),
-      fileName: fileName || ''
-    };
-
-    return {
-      meta: meta,
-      sections: finishSections(byKey, 'Found a timetable grid but no readable class entries in it.')
-    };
-  }
-
-  function parseWorkbook(arrayBuffer, fileName) {
-    var wb = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
-    var sheetsData = wb.SheetNames.map(function (name) {
-      return {
-        name: name,
-        ws: wb.Sheets[name],
-        rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: false, defval: '' })
-      };
-    });
-
-    var candidates = [];
-    sheetsData.forEach(function (sd) {
-      var header = findHeaderRow(sd.rows);
-      if (header) {
-        candidates.push({
-          name: sd.name, rows: sd.rows, header: header,
-          nameBonus: /list/i.test(sd.name) && /course/i.test(sd.name) ? 1 : 0
-        });
-      }
-    });
-    if (candidates.length) {
-      candidates.sort(function (a, b) {
-        return (b.header.score - a.header.score) || (b.nameBonus - a.nameBonus);
-      });
-      return parseFlatSheet(candidates[0], fileName);
-    }
-
-    var grids = [];
-    sheetsData.forEach(function (sd) {
-      var grid = detectGrid(sd.rows);
-      if (grid) grids.push({ name: sd.name, ws: sd.ws, rows: sd.rows, grid: grid });
-    });
-    if (grids.length) return parseGridWorkbook(sheetsData, grids, fileName);
-
-    throw new Error('Could not recognize this timetable format - expected either a flat "List of Courses" sheet (Code/Course/Section/Teacher/Day/Time/Room) or a period-grid timetable sheet.');
-  }
-
-  var GENERIC_EXAMPLES = {
-    code: 'the course code',
-    codeSection: 'CODE-SECTION',
-    codeSection2: '',
-    nameWord: ''
+}
+
+const savedCampus = storageGet(CAMPUS_STORAGE_KEY);
+if (savedCampus && CAMPUSES.includes(savedCampus)) state.reviewCampus = savedCampus;
+
+function colorFor(sec) {
+  return state.colors.hexFor(sec);
+}
+
+function intInput(input, fallback) {
+  const v = parseInt(input.value, 10);
+  return Number.isFinite(v) && v > 0 ? v : fallback;
+}
+
+function durationDefaults() {
+  return {
+    theoryMin: intInput(theoryMinInput, DEFAULT_THEORY_MIN),
+    labMin: intInput(labMinInput, DEFAULT_LAB_MIN),
   };
+}
 
-  function pickExamples(sections) {
-    var first = null;
-    var second = null;
-    for (var i = 0; i < sections.length; i++) {
-      var sec = sections[i];
-      if (!sec.code || !sec.section || sec.code === sec.name) continue;
-      if (!first) first = sec;
-      else if (sec.code !== first.code) { second = sec; break; }
-    }
-    if (!first) return GENERIC_EXAMPLES;
+function reviewLink(teacher, label) {
+  if (!hasReviewLink(teacher)) return null;
+  const a = el('a', 'prof-link');
+  a.href = reviewUrl(teacher, state.reviewCampus);
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  a.appendChild(el('span', 'prof-link-text', label || 'Reviews'));
+  a.appendChild(el('span', 'prof-link-arrow', '↗'));
+  a.setAttribute('aria-label', 'See student reviews for ' + reviewSearchName(teacher) + ' on NUCESRate (opens in a new tab)');
+  a.title = a.getAttribute('aria-label');
+  // Inside clickable rows: following the link must not also toggle the row.
+  a.addEventListener('click', (ev) => ev.stopPropagation());
+  return a;
+}
 
-    var word = '';
-    (first.name || '').split(/[^A-Za-z]+/).forEach(function (w) {
-      if (w.length > word.length) word = w;
+// ------------------------------------------------------------------- header
+
+function renderHeader(user) {
+  userName.textContent = user.displayName || user.email;
+  userName.title = user.email;
+  adminLink.hidden = user.role !== 'admin';
+}
+
+signOutBtn.addEventListener('click', async () => {
+  signOutBtn.disabled = true;
+  await saver.flush();
+  await signOut();
+  location.replace('/login.html');
+});
+
+// ------------------------------------------------------- saved-schedule sync
+
+const SAVE_LABELS = { saving: 'Saving…', saved: 'Saved', failed: 'Not saved', off: 'Not saving', idle: '' };
+
+function setSaveStatus(kind) {
+  saveStatus.dataset.state = kind;
+  saveStatus.textContent = SAVE_LABELS[kind] || '';
+  saveRetry.hidden = kind !== 'failed';
+}
+
+const saver = createSaver({
+  delay: SAVE_DELAY_MS,
+  onStatus: setSaveStatus,
+  async send(job) {
+    const res = await apiFetch('/schedules/' + encodeURIComponent(job.timetableId), { method: 'PUT', body: job.body });
+    return res.ok;
+  },
+});
+
+function queueSave() {
+  if (!state.timetableId || !state.saveEnabled) return;
+  saver.schedule({ timetableId: state.timetableId, body: serializeSchedule(state.selected, state.colors) });
+}
+
+saveRetry.addEventListener('click', () => { saver.retry(); });
+
+// Don't lose a change made just before the tab is hidden or closed.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') saver.flush();
+});
+window.addEventListener('pagehide', () => { saver.flush(); });
+
+// ------------------------------------------------------------ timetable picker
+
+function setPickerStatus(message, kind) {
+  pickerStatus.textContent = message;
+  pickerStatus.classList.toggle('error', kind === 'error');
+  pickerStatus.classList.toggle('success', kind === 'success');
+}
+
+function setPickerRetry(handler) {
+  pickerRetry.hidden = !handler;
+  pickerRetry.onclick = handler || null;
+}
+
+function fillTimetableSelect() {
+  timetableSelect.textContent = '';
+  const isAdmin = state.user.role === 'admin';
+  const placeholder = el('option', null, 'Choose a timetable…');
+  placeholder.value = '';
+  timetableSelect.appendChild(placeholder);
+  groupTimetables(state.timetables).forEach((group) => {
+    const og = document.createElement('optgroup');
+    og.label = group.department;
+    group.items.forEach((t) => {
+      const opt = el('option', null, timetableOptionLabel(t, { showDraft: isAdmin }));
+      opt.value = t.id;
+      og.appendChild(opt);
     });
+    timetableSelect.appendChild(og);
+  });
+}
 
-    return {
-      code: first.code,
-      codeSection: first.code + '-' + first.section,
-      codeSection2: second ? second.code + '-' + second.section : '',
-      nameWord: word.length > 3 ? word : ''
-    };
+async function loadTimetableList({ preselect, notice }) {
+  timetableSelect.disabled = true;
+  pickerAdminLink.hidden = true;
+  setPickerRetry(null);
+  setPickerStatus('Loading timetables…');
+
+  const res = await apiFetch('/timetables');
+  if (!res.ok) {
+    setPickerStatus('Couldn’t load the timetable list. ' + res.error.message, 'error');
+    setPickerRetry(() => loadTimetableList({ preselect: storageGet(TIMETABLE_STORAGE_KEY) }));
+    return;
   }
 
-  function applyExamples() {
-    var ex = state.examples || GENERIC_EXAMPLES;
-    courseSearch.placeholder = ex.nameWord
-      ? 'e.g. ' + ex.code + ' or ' + ex.nameWord
-      : 'Start typing a course code or name';
-    var joined = ex.codeSection + (ex.codeSection2 ? ', ' + ex.codeSection2 : '');
-    if (quickAddExample) quickAddExample.textContent = joined;
-    quickAddInput.placeholder = joined;
+  state.timetables = Array.isArray(res.data && res.data.timetables) ? res.data.timetables : [];
+  fillTimetableSelect();
+
+  if (!state.timetables.length) {
+    const isAdmin = state.user.role === 'admin';
+    setPickerStatus(isAdmin
+      ? 'No timetables have been uploaded yet.'
+      : 'No timetables have been published yet. Check back soon.');
+    pickerAdminLink.hidden = !isAdmin;
+    return;
   }
 
-  function setUploadStatus(message, kind) {
-    uploadStatus.textContent = message;
-    uploadStatus.classList.toggle('error', kind === 'error');
-    uploadStatus.classList.toggle('success', kind === 'success');
+  timetableSelect.disabled = false;
+  setPickerStatus('');
+  const wanted = state.timetables.find((t) => t.id === preselect) || (state.timetables.length === 1 ? state.timetables[0] : null);
+  if (wanted) {
+    timetableSelect.value = wanted.id;
+    await selectTimetable(wanted.id, { scroll: false });
+  } else if (notice) {
+    setPickerStatus(notice, 'error');
   }
+}
 
-  function loadArrayBuffer(arrayBuffer, fileName) {
-    try {
-      var parsed = parseWorkbook(arrayBuffer, fileName);
-    } catch (err) {
-      setUploadStatus(err.message || 'Could not read that file.', 'error');
+let loadToken = 0;
+
+function clearLoaded() {
+  state.timetableId = null;
+  state.meta = null;
+  state.examples = null;
+  state.sections = [];
+  state.selected = new Map();
+  state.colors = new ColorBook();
+  state.saveEnabled = false;
+  buildPanel.hidden = true;
+  imagePanel.hidden = true;
+  browseOpenBtn.disabled = true;
+  browseOpenBtn.title = 'Choose a timetable first';
+  setSaveStatus('idle');
+}
+
+async function selectTimetable(id, { scroll }) {
+  const token = ++loadToken;
+  setPickerRetry(null);
+  // Finish saving the previous timetable's schedule before replacing it.
+  await saver.flush();
+  if (token !== loadToken) return;
+  clearLoaded();
+
+  if (!id) {
+    setPickerStatus('');
+    return;
+  }
+  storageSet(TIMETABLE_STORAGE_KEY, id);
+  setPickerStatus('Loading timetable…');
+  timetableSelect.disabled = true;
+
+  const [ttRes, schedRes] = await Promise.all([
+    apiFetch('/timetables/' + encodeURIComponent(id)),
+    apiFetch('/schedules/' + encodeURIComponent(id)),
+  ]);
+  if (token !== loadToken) return;
+  timetableSelect.disabled = false;
+
+  if (!ttRes.ok) {
+    if (ttRes.status === 404) {
+      // Unpublished or deleted since the list was fetched.
+      storageSet(TIMETABLE_STORAGE_KEY, null);
+      await loadTimetableList({ preselect: null, notice: 'That timetable is no longer available.' });
       return;
     }
+    setPickerStatus('Couldn’t load that timetable. ' + ttRes.error.message, 'error');
+    setPickerRetry(() => selectTimetable(id, { scroll }));
+    return;
+  }
 
-    state.meta = parsed.meta;
-    state.sections = parsed.sections;
-    state.examples = pickExamples(parsed.sections);
-    state.selected = new Map();
-    state.colorAssignments = new Map();
-    state.nextColorSlot = 0;
+  const timetable = ttRes.data.timetable;
+  const sections = adaptSections(ttRes.data.sections);
+  if (!sections.length) {
+    setPickerStatus('That timetable has no classes in it.', 'error');
+    return;
+  }
 
-    var courseCount = new Set(parsed.sections.map(function (s) { return s.code; })).size;
-    var parts = [];
-    if (parsed.meta.department) parts.push(parsed.meta.department);
-    if (parsed.meta.semester) parts.push(parsed.meta.semester);
-    parts.push(courseCount + ' courses · ' + parsed.sections.length + ' sections found');
-    fileSummary.textContent = parts.join(' - ');
+  const saved = schedRes.ok && schedRes.data ? schedRes.data.schedule : null;
+  const restored = restoreSchedule(sections, saved);
 
-    var allExplicit = parsed.sections.every(function (sec) {
-      return sec.meetings.every(function (m) { return m.durMin; });
+  state.timetableId = timetable.id;
+  state.meta = { department: timetable.department || '', semester: timetable.semester || '', title: timetable.title || '' };
+  state.sections = sections;
+  state.examples = pickExamples(sections);
+  state.selected = restored.selected;
+  state.colors = restored.colors;
+  // If the saved schedule couldn't be read, saving now would overwrite it with an
+  // empty one, so autosave stays off until the page is reloaded.
+  state.saveEnabled = schedRes.ok;
+
+  const courseCount = new Set(sections.map((s) => s.code)).size;
+  const parts = [];
+  if (state.meta.department) parts.push(state.meta.department);
+  if (state.meta.semester) parts.push(state.meta.semester);
+  parts.push(courseCount + ' courses · ' + sections.length + ' sections');
+  timetableSummary.textContent = parts.join(' - ');
+
+  const explicit = timetable.explicitDurations === undefined
+    ? allDurationsExplicit(sections)
+    : Boolean(timetable.explicitDurations);
+  theoryMinInput.disabled = explicit;
+  labMinInput.disabled = explicit;
+  advancedHint.textContent = explicit
+    ? 'This timetable lists the exact length of every class, so no estimates are needed - these inputs are disabled.'
+    : defaultAdvancedHint;
+
+  browseJumpLabel.textContent = '';
+  browseJumpLabel.append('Not sure what’s on offer? ');
+  browseJumpLabel.appendChild(el('strong', null, 'Browse all ' + courseCount + ' courses'));
+
+  buildPanel.hidden = false;
+  imagePanel.hidden = false;
+  browseOpenBtn.disabled = false;
+  browseOpenBtn.removeAttribute('title');
+
+  if (schedRes.ok) {
+    setPickerStatus(restored.selected.size
+      ? 'Restored your saved schedule (' + restored.selected.size + (restored.selected.size === 1 ? ' section).' : ' sections).')
+      : '', 'success');
+    setSaveStatus('idle');
+  } else {
+    setPickerStatus('Couldn’t load your saved schedule, so changes won’t be saved on this page.', 'error');
+    setPickerRetry(() => selectTimetable(id, { scroll }));
+    setSaveStatus('off');
+  }
+
+  applyExamples();
+  quickAddFeedback.textContent = '';
+  courseSearch.value = '';
+  browseFilter.value = '';
+  renderSearchResults();
+  renderBrowse();
+  renderAll();
+  if (scroll) buildPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+timetableSelect.addEventListener('change', () => {
+  selectTimetable(timetableSelect.value, { scroll: true });
+});
+
+function applyExamples() {
+  const ex = state.examples || GENERIC_EXAMPLES;
+  courseSearch.placeholder = ex.nameWord
+    ? 'e.g. ' + ex.code + ' or ' + ex.nameWord
+    : 'Start typing a course code or name';
+  const joined = ex.codeSection + (ex.codeSection2 ? ', ' + ex.codeSection2 : '');
+  if (quickAddExample) quickAddExample.textContent = joined;
+  quickAddInput.placeholder = joined;
+}
+
+// ---------------------------------------------------------- search & selection
+
+function renderSearchResults() {
+  searchResults.textContent = '';
+  if (!state.sections.length) return;
+
+  const groups = courseGroups(state.sections, courseSearch.value);
+  if (!groups.length) {
+    searchResults.appendChild(el('div', 'no-results', 'No courses match that - try just the code, e.g. "' + (state.examples || GENERIC_EXAMPLES).code + '".'));
+    return;
+  }
+
+  groups.forEach((group) => {
+    const groupEl = el('div', 'result-group');
+    const head = el('div', 'result-group-head', group.code === group.name ? '' : group.code + ' ');
+    head.appendChild(el('span', 'rg-name', group.name));
+    groupEl.appendChild(head);
+
+    group.sections.forEach((sec) => {
+      const key = sectionKey(sec);
+      const row = el('div', 'result-row');
+      row.dataset.key = key;
+      row.setAttribute('role', 'option');
+
+      const main = el('div', 'result-row-main');
+      main.appendChild(el('span', 'result-row-section', sec.section));
+      const metaBits = [sec.teacher, sectionMeetingSummary(sec)].filter(Boolean);
+      main.appendChild(el('span', 'result-row-meta', metaBits.join(' · ')));
+      row.appendChild(main);
+
+      const link = reviewLink(sec.teacher);
+      if (link) row.appendChild(link);
+
+      const addBtn = el('button', 'result-row-add', 'Add');
+      addBtn.type = 'button';
+      row.appendChild(addBtn);
+
+      row.addEventListener('click', () => toggleSection(sec));
+      groupEl.appendChild(row);
     });
-    theoryMinInput.disabled = allExplicit;
-    labMinInput.disabled = allExplicit;
-    advancedHint.textContent = allExplicit
-      ? 'This file lists the exact length of every class, so no estimates are needed - these inputs are disabled.'
-      : defaultAdvancedHint;
 
-    browseJumpLabel.innerHTML = "Not sure what's on offer? <strong>Browse all " + courseCount + " courses</strong>";
+    searchResults.appendChild(groupEl);
+  });
 
-    setUploadStatus('Loaded ' + (fileName || 'file') + ' - ' + courseCount + ' courses.', 'success');
-    buildPanel.hidden = false;
-    imagePanel.hidden = false;
-    browseOpenBtn.disabled = false;
-    browseOpenBtn.removeAttribute('title');
+  updateResultRowStates();
+}
 
-    applyExamples();
-    quickAddFeedback.textContent = '';
-    courseSearch.value = '';
-    browseFilter.value = '';
-    renderSearchResults();
-    renderBrowse();
+function updateResultRowStates() {
+  searchResults.querySelectorAll('.result-row').forEach((row) => {
+    const added = state.selected.has(row.dataset.key);
+    row.classList.toggle('added', added);
+    row.setAttribute('aria-selected', added ? 'true' : 'false');
+    row.querySelector('.result-row-add').textContent = added ? 'Added' : 'Add';
+  });
+}
+
+courseSearch.addEventListener('input', renderSearchResults);
+
+function toggleSection(sec) {
+  const key = sectionKey(sec);
+  if (state.selected.has(key)) {
+    state.selected.delete(key);
+  } else {
+    state.selected.set(key, sec);
+    colorFor(sec); // claim a colour slot now so it stays stable
+  }
+  renderAll();
+  queueSave();
+}
+
+function renderSelectedList() {
+  selectedList.textContent = '';
+  state.selected.forEach((sec) => {
+    const li = el('li', 'selected-item');
+
+    const swatch = el('span', 'selected-swatch');
+    swatch.style.background = colorFor(sec);
+    li.appendChild(swatch);
+
+    const main = el('div', 'selected-main');
+    main.appendChild(el('div', 'selected-title',
+      (sec.code === sec.name ? '' : sec.code + ' · ') + sec.section));
+    const metaBits = [sec.name, sec.teacher, sectionMeetingSummary(sec)].filter(Boolean);
+    main.appendChild(el('div', 'selected-meta', metaBits.join(' · ')));
+    li.appendChild(main);
+
+    const link = reviewLink(sec.teacher);
+    if (link) li.appendChild(link);
+
+    const removeBtn = el('button', 'selected-remove', '×');
+    removeBtn.type = 'button';
+    removeBtn.setAttribute('aria-label', 'Remove ' + sec.code + ' ' + sec.section);
+    removeBtn.addEventListener('click', () => toggleSection(sec));
+    li.appendChild(removeBtn);
+
+    selectedList.appendChild(li);
+  });
+
+  selectedCount.textContent = state.selected.size;
+  emptySelectedHint.hidden = state.selected.size > 0;
+  downloadBtn.disabled = state.selected.size === 0;
+}
+
+quickAddResolve.addEventListener('click', () => {
+  quickAddFeedback.textContent = '';
+  const tokens = quickAddInput.value.split(/[\n,;]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+  if (!tokens.length) {
+    quickAddFeedback.appendChild(el('div', 'qa-fail', 'Nothing to add - paste codes like "' + (state.examples || GENERIC_EXAMPLES).codeSection + '" first.'));
+    return;
+  }
+
+  let changed = false;
+  tokens.forEach((token) => {
+    const result = resolveQuickAddToken(state.sections, token);
+    if (!result.ok) {
+      quickAddFeedback.appendChild(el('div', 'qa-fail', '✗ ' + token + ' - ' + result.reason));
+      return;
+    }
+    const sec = result.section;
+    const label = sec.code + ' ' + sec.section;
+    if (state.selected.has(sectionKey(sec))) {
+      quickAddFeedback.appendChild(el('div', 'qa-ok', '✓ ' + token + ' → ' + label + ' (already added)'));
+    } else {
+      state.selected.set(sectionKey(sec), sec);
+      colorFor(sec);
+      changed = true;
+      quickAddFeedback.appendChild(el('div', 'qa-ok', '✓ ' + token + ' → ' + label + ' added'));
+    }
+  });
+  if (changed) {
     renderAll();
-    buildPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    queueSave();
   }
+});
 
-  function handleFile(file) {
-    if (!file) return;
-    if (!/\.xlsx?$/i.test(file.name)) {
-      setUploadStatus('That doesn’t look like an Excel file - expected .xlsx or .xls.', 'error');
-      return;
-    }
-    setUploadStatus('Reading ' + file.name + '…');
-    file.arrayBuffer().then(function (buf) {
-      loadArrayBuffer(buf, file.name);
-    }, function () {
-      setUploadStatus('Could not read the file from disk.', 'error');
+// -------------------------------------------------------- conflicts and canvas
+
+function currentEvents() {
+  return selectedEvents(state.selected, durationDefaults());
+}
+
+function renderConflicts(events) {
+  const conflicts = findConflicts(events);
+  conflictBanner.hidden = conflicts.length === 0;
+  if (!conflicts.length) return;
+
+  conflictText.textContent = '';
+  conflictText.appendChild(el('div', null,
+    conflicts.length === 1 ? 'These two classes overlap:' : 'Some of your classes overlap:'));
+  const list = el('ul');
+  conflicts.forEach(([a, b]) => {
+    list.appendChild(el('li', null,
+      WEEKDAYS[a.dayIdx] + ': ' +
+      a.sec.code + ' (' + a.sec.section + ') ' + fmtMinutes(a.start) + '–' + fmtMinutes(a.end) +
+      ' ↔ ' +
+      b.sec.code + ' (' + b.sec.section + ') ' + fmtMinutes(b.start) + '–' + fmtMinutes(b.end)));
+  });
+  conflictText.appendChild(list);
+}
+
+function renderCanvas(events) {
+  if (!state.sections.length) return;
+  const scale = Math.min(window.devicePixelRatio || 1, 2) * 1.25;
+  renderTimetable(canvas.getContext('2d'), scale, { meta: state.meta, events, colorFor });
+}
+
+downloadBtn.addEventListener('click', () => {
+  const exportCanvas = document.createElement('canvas');
+  renderTimetable(exportCanvas.getContext('2d'), 3, { meta: state.meta, events: currentEvents(), colorFor });
+
+  exportCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const firstSec = state.selected.values().next().value;
+    const name = firstSec
+      ? 'timetable-' + firstSec.code.toLowerCase() + '.png'
+      : 'my-timetable.png';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }, 'image/png');
+});
+
+function renderAll() {
+  const events = currentEvents();
+  renderSelectedList();
+  updateResultRowStates();
+  updateBrowseAddStates();
+  renderConflicts(events);
+  renderCanvas(events);
+}
+
+// Class-length estimates only change the drawing, not what is saved.
+theoryMinInput.addEventListener('input', renderAll);
+labMinInput.addEventListener('input', renderAll);
+
+// ---------------------------------------------------------------- the catalog
+
+function renderBrowseStats() {
+  browseStats.textContent = '';
+  const courseCount = courseGroups(state.sections, '').length;
+  const teacherCount = teacherCatalog(state.sections).filter((t) => t.name !== 'TBA').length;
+  const stats = [
+    [courseCount, courseCount === 1 ? 'course' : 'courses'],
+    [teacherCount, teacherCount === 1 ? 'teacher' : 'teachers'],
+    [state.sections.length, state.sections.length === 1 ? 'section' : 'sections'],
+  ];
+  stats.forEach(([n, label]) => {
+    const chip = el('span', 'stat-chip');
+    chip.appendChild(el('strong', null, String(n)));
+    chip.appendChild(document.createTextNode(label));
+    browseStats.appendChild(chip);
+  });
+}
+
+function sectionRow(sec, showCourse) {
+  const row = el('div', 'catalog-row');
+  row.dataset.key = sectionKey(sec);
+
+  const main = el('div', 'catalog-row-main');
+  const title = el('div', 'catalog-row-title');
+  if (showCourse) {
+    if (sec.code !== sec.name) title.appendChild(el('strong', null, sec.code));
+    title.appendChild(document.createTextNode(' ' + sec.name + ' '));
+  }
+  title.appendChild(el('span', 'catalog-row-section', sec.section));
+  main.appendChild(title);
+
+  const metaBits = [sec.teacher, sectionMeetingSummary(sec)].filter(Boolean);
+  if (metaBits.length) main.appendChild(el('div', 'catalog-row-meta', metaBits.join(' · ')));
+  row.appendChild(main);
+
+  const link = reviewLink(sec.teacher);
+  if (link) row.appendChild(link);
+
+  const add = el('button', 'catalog-add');
+  add.type = 'button';
+  add.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    toggleSection(sec);
+  });
+  row.appendChild(add);
+
+  return row;
+}
+
+function updateBrowseAddStates() {
+  browseContent.querySelectorAll('.catalog-row').forEach((row) => {
+    const added = state.selected.has(row.dataset.key);
+    row.classList.toggle('added', added);
+    row.querySelector('.catalog-add').textContent = added ? 'Added' : 'Add';
+  });
+  const n = state.selected.size;
+  browseFootCount.textContent = n
+    ? n + (n === 1 ? ' section added' : ' sections added')
+    : 'Nothing added yet';
+}
+
+function renderBrowseCourses(tokens) {
+  const grid = el('div', 'course-grid');
+  let shown = 0;
+  courseGroups(state.sections, '').forEach((group) => {
+    const teachers = [];
+    group.sections.forEach((sec) => {
+      if (sec.teacher && !teachers.includes(sec.teacher)) teachers.push(sec.teacher);
     });
-  }
+    const hay = group.code + ' ' + group.name + ' ' + teachers.join(' ') + ' ' +
+      group.sections.map((s) => s.section).join(' ');
+    if (!matchesFilter(hay, tokens)) return;
+    shown++;
 
-  fileInput.addEventListener('change', function () {
-    handleFile(fileInput.files[0]);
-    fileInput.value = '';
+    const card = el('details', 'course-card');
+    const summary = el('summary', 'course-card-summary');
+
+    const top = el('div', 'course-card-top');
+    top.appendChild(el('span', 'course-code', group.code));
+    if (/\blab\b/i.test(group.name)) top.appendChild(el('span', 'lab-tag', 'Lab'));
+    summary.appendChild(top);
+
+    summary.appendChild(el('div', 'course-name', group.name));
+
+    const n = group.sections.length;
+    let meta = n + (n === 1 ? ' section' : ' sections');
+    if (teachers.length) meta += ' · ' + teachers.join(', ');
+    summary.appendChild(el('div', 'course-meta', meta));
+    card.appendChild(summary);
+
+    const rows = el('div', 'catalog-rows');
+    group.sections.forEach((sec) => rows.appendChild(sectionRow(sec, false)));
+    card.appendChild(rows);
+
+    if (tokens.length) card.open = true;
+    grid.appendChild(card);
   });
 
-  ['dragover', 'dragenter'].forEach(function (type) {
-    dropzone.addEventListener(type, function (e) {
-      e.preventDefault();
-      dropzone.classList.add('dragover');
-    });
-  });
-  ['dragleave', 'dragend'].forEach(function (type) {
-    dropzone.addEventListener(type, function () {
-      dropzone.classList.remove('dragover');
-    });
-  });
-  dropzone.addEventListener('drop', function (e) {
-    e.preventDefault();
-    dropzone.classList.remove('dragover');
-    if (e.dataTransfer && e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
-  });
-  dropzone.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      fileInput.click();
-    }
-  });
-
-  function courseGroups(query) {
-    var tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    var groups = new Map();
-    state.sections.forEach(function (sec) {
-      if (tokens.length) {
-        var hay = (sec.code + ' ' + sec.name + ' ' + sec.section).toLowerCase();
-        var ok = tokens.every(function (t) { return hay.indexOf(t) !== -1; });
-        if (!ok) return;
-      }
-      var gKey = sec.code + '|' + sec.name;
-      var g = groups.get(gKey);
-      if (!g) {
-        g = { code: sec.code, name: sec.name, sections: [] };
-        groups.set(gKey, g);
-      }
-      g.sections.push(sec);
-    });
-    return Array.from(groups.values());
+  if (!shown) {
+    browseContent.appendChild(el('div', 'no-results', 'Nothing in the catalog matches that filter.'));
+  } else {
+    browseContent.appendChild(grid);
   }
+}
 
-  function renderSearchResults() {
-    searchResults.textContent = '';
-    if (!state.sections.length) return;
+function renderBrowseTeachers(tokens) {
+  const list = el('div', 'teacher-list');
+  let shown = 0;
+  teacherCatalog(state.sections).forEach((teacher) => {
+    const courses = Array.from(teacher.courses.values());
+    const hay = teacher.name + ' ' + courses.map((c) => c.code + ' ' + c.name).join(' ');
+    if (!matchesFilter(hay, tokens)) return;
+    shown++;
 
-    var groups = courseGroups(courseSearch.value);
-    if (!groups.length) {
-      searchResults.appendChild(el('div', 'no-results', 'No courses match that - try just the code, e.g. "' + (state.examples || GENERIC_EXAMPLES).code + '".'));
-      return;
-    }
+    const row = el('details', 'teacher-row');
 
-    groups.forEach(function (group) {
-      var groupEl = el('div', 'result-group');
-      var head = el('div', 'result-group-head', group.code === group.name ? '' : group.code + ' ');
-      head.appendChild(el('span', 'rg-name', group.name));
-      groupEl.appendChild(head);
+    const head = el('summary', 'teacher-head');
+    head.appendChild(el('span', 'teacher-avatar', teacherInitials(teacher.name)));
+    head.appendChild(el('span', 'teacher-name', teacher.name));
+    const nc = courses.length;
+    head.appendChild(el('span', 'teacher-load',
+      nc + (nc === 1 ? ' course' : ' courses') + ' · ' +
+      teacher.sectionCount + (teacher.sectionCount === 1 ? ' section' : ' sections')));
+    const link = reviewLink(teacher.name);
+    if (link) head.appendChild(link);
+    row.appendChild(head);
 
-      group.sections.forEach(function (sec) {
-        var key = sectionKey(sec);
-        var row = el('div', 'result-row');
-        row.dataset.key = key;
-        row.setAttribute('role', 'option');
-
-        var main = el('div', 'result-row-main');
-        main.appendChild(el('span', 'result-row-section', sec.section));
-        var metaBits = [sec.teacher, sectionMeetingSummary(sec)].filter(Boolean);
-        main.appendChild(el('span', 'result-row-meta', metaBits.join(' · ')));
-        row.appendChild(main);
-
-        var link = reviewLink(sec.teacher);
-        if (link) row.appendChild(link);
-
-        var addBtn = el('button', 'result-row-add', 'Add');
-        addBtn.type = 'button';
-        row.appendChild(addBtn);
-
-        row.addEventListener('click', function () { toggleSection(sec); });
-        groupEl.appendChild(row);
-      });
-
-      searchResults.appendChild(groupEl);
+    const rows = el('div', 'catalog-rows');
+    state.sections.forEach((sec) => {
+      if ((sec.teacher || 'TBA') !== teacher.name) return;
+      rows.appendChild(sectionRow(sec, true));
     });
+    row.appendChild(rows);
 
-    updateResultRowStates();
-  }
-
-  function updateResultRowStates() {
-    searchResults.querySelectorAll('.result-row').forEach(function (row) {
-      var added = state.selected.has(row.dataset.key);
-      row.classList.toggle('added', added);
-      row.setAttribute('aria-selected', added ? 'true' : 'false');
-      row.querySelector('.result-row-add').textContent = added ? 'Added' : 'Add';
-    });
-  }
-
-  courseSearch.addEventListener('input', renderSearchResults);
-
-  function toggleSection(sec) {
-    var key = sectionKey(sec);
-    if (state.selected.has(key)) {
-      state.selected.delete(key);
-    } else {
-      state.selected.set(key, sec);
-      colorForSection(sec);
-    }
-    renderAll();
-  }
-
-  function renderSelectedList() {
-    selectedList.textContent = '';
-    state.selected.forEach(function (sec) {
-      var li = el('li', 'selected-item');
-
-      var swatch = el('span', 'selected-swatch');
-      swatch.style.background = colorForSection(sec);
-      li.appendChild(swatch);
-
-      var main = el('div', 'selected-main');
-      main.appendChild(el('div', 'selected-title',
-        (sec.code === sec.name ? '' : sec.code + ' · ') + sec.section));
-      var metaBits = [sec.name, sec.teacher, sectionMeetingSummary(sec)].filter(Boolean);
-      main.appendChild(el('div', 'selected-meta', metaBits.join(' · ')));
-      li.appendChild(main);
-
-      var link = reviewLink(sec.teacher);
-      if (link) li.appendChild(link);
-
-      var removeBtn = el('button', 'selected-remove', '×');
-      removeBtn.type = 'button';
-      removeBtn.setAttribute('aria-label', 'Remove ' + sec.code + ' ' + sec.section);
-      removeBtn.addEventListener('click', function () { toggleSection(sec); });
-      li.appendChild(removeBtn);
-
-      selectedList.appendChild(li);
-    });
-
-    selectedCount.textContent = state.selected.size;
-    emptySelectedHint.hidden = state.selected.size > 0;
-    downloadBtn.disabled = state.selected.size === 0;
-  }
-
-  function resolveQuickAddToken(token) {
-    var codeMatch = /[A-Za-z]{2,}\d{3,}/.exec(token);
-    if (!codeMatch) return { ok: false, reason: 'no course code found' };
-
-    var codeUpper = codeMatch[0].toUpperCase();
-    var ofCode = state.sections.filter(function (s) { return s.code.toUpperCase() === codeUpper; });
-    if (!ofCode.length) return { ok: false, reason: 'unknown code "' + codeMatch[0] + '"' };
-
-    var remainder = (token.slice(0, codeMatch.index) + token.slice(codeMatch.index + codeMatch[0].length))
-      .replace(/[^A-Za-z0-9]+/g, '').toLowerCase();
-
-    if (!remainder) {
-      if (ofCode.length === 1) return { ok: true, section: ofCode[0] };
-      return { ok: false, reason: codeUpper + ' has ' + ofCode.length + ' sections - add one, e.g. ' + codeUpper + '-' + ofCode[0].section };
-    }
-
-    var norm = function (s) { return s.replace(/[^A-Za-z0-9]+/g, '').toLowerCase(); };
-    var match =
-      ofCode.find(function (s) { return norm(s.section) === remainder; }) ||
-      ofCode.find(function (s) { return norm(s.section).slice(-remainder.length) === remainder; }) ||
-      ofCode.find(function (s) { return norm(s.section).indexOf(remainder) !== -1; });
-
-    if (!match) return { ok: false, reason: 'no section of ' + codeUpper + ' matches "' + remainder + '"' };
-    return { ok: true, section: match };
-  }
-
-  quickAddResolve.addEventListener('click', function () {
-    quickAddFeedback.textContent = '';
-    var tokens = quickAddInput.value.split(/[\n,;]+/)
-      .map(function (t) { return t.trim(); })
-      .filter(Boolean);
-
-    if (!tokens.length) {
-      quickAddFeedback.appendChild(el('div', 'qa-fail', 'Nothing to add - paste codes like "' + (state.examples || GENERIC_EXAMPLES).codeSection + '" first.'));
-      return;
-    }
-
-    var changed = false;
-    tokens.forEach(function (token) {
-      var result = resolveQuickAddToken(token);
-      if (!result.ok) {
-        quickAddFeedback.appendChild(el('div', 'qa-fail', '✗ ' + token + ' - ' + result.reason));
-        return;
-      }
-      var sec = result.section;
-      var label = sec.code + ' ' + sec.section;
-      if (state.selected.has(sectionKey(sec))) {
-        quickAddFeedback.appendChild(el('div', 'qa-ok', '✓ ' + token + ' → ' + label + ' (already added)'));
-      } else {
-        state.selected.set(sectionKey(sec), sec);
-        colorForSection(sec);
-        changed = true;
-        quickAddFeedback.appendChild(el('div', 'qa-ok', '✓ ' + token + ' → ' + label + ' added'));
-      }
-    });
-    if (changed) renderAll();
+    if (tokens.length) row.open = true;
+    list.appendChild(row);
   });
 
-  function selectedEvents() {
+  if (!shown) {
+    browseContent.appendChild(el('div', 'no-results', 'No teacher matches that filter.'));
+  } else {
+    browseContent.appendChild(list);
+  }
+}
 
-    var events = [];
-    state.selected.forEach(function (sec) {
-      sec.meetings.forEach(function (meeting) {
-        var start = meeting.startMin;
-        events.push({
-          sec: sec,
-          meeting: meeting,
-          dayIdx: meeting.dayIdx,
-          start: start,
-          end: start + meetingDuration(sec, meeting),
-          isLab: meetingIsLab(sec, meeting)
-        });
+function renderBrowseSections(tokens) {
+  const list = el('div', 'section-list');
+  let shown = 0;
+
+  sectionCatalog(state.sections).forEach((base) => {
+    const courseText = [];
+    base.subList.forEach((sub) => {
+      sub.sections.forEach((sec) => {
+        courseText.push(sec.code + ' ' + sec.name + ' ' + (sec.teacher || ''));
       });
     });
-    return events;
-  }
+    const hay = base.label + ' ' + base.subList.map((s) => s.label).join(' ') + ' ' + courseText.join(' ');
+    if (!matchesFilter(hay, tokens)) return;
+    shown++;
 
-  function findConflicts(events) {
-    var conflicts = [];
-    for (var i = 0; i < events.length; i++) {
-      for (var j = i + 1; j < events.length; j++) {
-        var a = events[i], b = events[j];
-        if (a.dayIdx !== b.dayIdx) continue;
-        if (a.sec === b.sec) continue;
-        if (a.start < b.end && b.start < a.end) conflicts.push([a, b]);
-      }
+    const group = el('details', 'section-group');
+
+    const head = el('summary', 'section-head');
+    head.appendChild(el('span', 'section-label', base.label));
+    head.appendChild(el('span', 'section-load',
+      base.total + (base.total === 1 ? ' class' : ' classes')));
+
+    const subs = base.subList.filter((s) => s.label !== base.label);
+    if (subs.length) {
+      const tags = el('span', 'section-subs');
+      subs.forEach((sub) => tags.appendChild(el('span', 'sub-tag', sub.label)));
+      head.appendChild(tags);
     }
-    return conflicts;
-  }
+    group.appendChild(head);
 
-  function renderConflicts(events) {
-    var conflicts = findConflicts(events);
-    conflictBanner.hidden = conflicts.length === 0;
-    if (!conflicts.length) return;
+    base.subList.forEach((sub) => {
+      const block = el('div', 'sub-block');
 
-    conflictText.textContent = '';
-    conflictText.appendChild(el('div', null,
-      conflicts.length === 1 ? 'These two classes overlap:' : 'Some of your classes overlap:'));
-    var list = el('ul');
-    conflicts.forEach(function (pair) {
-      var a = pair[0], b = pair[1];
-      list.appendChild(el('li', null,
-        WEEKDAYS[a.dayIdx] + ': ' +
-        a.sec.code + ' (' + a.sec.section + ') ' + fmtMinutes(a.start) + '–' + fmtMinutes(a.end) +
-        ' ↔ ' +
-        b.sec.code + ' (' + b.sec.section + ') ' + fmtMinutes(b.start) + '–' + fmtMinutes(b.end)));
-    });
-    conflictText.appendChild(list);
-  }
+      const subHead = el('div', 'sub-head');
+      subHead.appendChild(el('span', 'sub-head-label', sub.label));
+      subHead.appendChild(el('span', 'sub-head-count',
+        sub.sections.length + (sub.sections.length === 1 ? ' class' : ' classes') +
+        (sub.isSub ? ' · sub-section' : '')));
+      block.appendChild(subHead);
 
-  var LAYOUT = {
-    pad: 18,
-    gutterW: 56,
-    headerH: 36,
-    hourH: 64,
-    colW: 164,
-    titleH: 26
-  };
+      const rows = el('div', 'catalog-rows');
+      sub.sections.forEach((sec) => rows.appendChild(sectionRow(sec, true)));
+      block.appendChild(rows);
 
-  function computeGrid(events) {
-    var dayIdxs = [0, 1, 2, 3, 4];
-    if (events.some(function (ev) { return ev.dayIdx === 5; })) dayIdxs.push(5);
-
-    var startHour = 8, endHour = 18;
-    if (events.length) {
-      var minStart = Math.min.apply(null, events.map(function (ev) { return ev.start; }));
-      var maxEnd = Math.max.apply(null, events.map(function (ev) { return ev.end; }));
-      startHour = Math.min(Math.floor(minStart / 60), 8);
-      endHour = Math.max(Math.ceil(maxEnd / 60), 18);
-    }
-    return { dayIdxs: dayIdxs, startHour: startHour, endHour: endHour };
-  }
-
-  function assignOverlapSlices(dayEvents) {
-    dayEvents.sort(function (a, b) { return (a.start - b.start) || (a.end - b.end); });
-    var clusters = [];
-    var current = null, currentMaxEnd = -1;
-    dayEvents.forEach(function (ev) {
-      if (!current || ev.start >= currentMaxEnd) {
-        current = [];
-        clusters.push(current);
-        currentMaxEnd = ev.end;
-      } else {
-        currentMaxEnd = Math.max(currentMaxEnd, ev.end);
-      }
-      current.push(ev);
+      group.appendChild(block);
     });
 
-    clusters.forEach(function (cluster) {
-      var columnEnds = [];
-      cluster.forEach(function (ev) {
-        var placed = false;
-        for (var c = 0; c < columnEnds.length; c++) {
-          if (ev.start >= columnEnds[c]) {
-            ev._slice = c;
-            columnEnds[c] = ev.end;
-            placed = true;
-            break;
-          }
-        }
-        if (!placed) {
-          ev._slice = columnEnds.length;
-          columnEnds.push(ev.end);
-        }
-      });
-      cluster.forEach(function (ev) { ev._sliceCount = columnEnds.length; });
-    });
-  }
-
-  function ellipsize(ctx, text, maxWidth) {
-    if (ctx.measureText(text).width <= maxWidth) return text;
-    var s = text;
-    while (s.length > 1 && ctx.measureText(s + '…').width > maxWidth) {
-      s = s.slice(0, -1);
-    }
-    return s + '…';
-  }
-
-  function roundRectPath(ctx, x, y, w, h, r) {
-    r = Math.min(r, w / 2, h / 2);
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-  }
-
-  function renderTimetable(ctx, scale) {
-    var events = selectedEvents();
-    var grid = computeGrid(events);
-    var L = LAYOUT;
-
-    var titleParts = [];
-    if (state.meta) {
-      if (state.meta.department) titleParts.push(state.meta.department);
-      if (state.meta.semester) titleParts.push(state.meta.semester);
-    }
-    var title = titleParts.join(' - ');
-    var titleH = title ? L.titleH : 0;
-
-    var gridW = grid.dayIdxs.length * L.colW;
-    var gridH = (grid.endHour - grid.startHour) * L.hourH;
-    var width = L.pad + L.gutterW + gridW + L.pad;
-    var height = L.pad + titleH + L.headerH + gridH + L.pad;
-
-    ctx.canvas.width = Math.round(width * scale);
-    ctx.canvas.height = Math.round(height * scale);
-    ctx.setTransform(scale, 0, 0, scale, 0, 0);
-
-    ctx.fillStyle = CANVAS_BG;
-    ctx.fillRect(0, 0, width, height);
-
-    var gx = L.pad + L.gutterW;
-    var gy = L.pad + titleH + L.headerH;
-
-    if (title) {
-      ctx.fillStyle = CANVAS_INK;
-      ctx.font = '600 13px ' + FONT_STACK;
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'alphabetic';
-      ctx.fillText(title, L.pad, L.pad + 14);
-    }
-
-    ctx.fillStyle = CANVAS_INK;
-    ctx.font = '700 13px ' + FONT_STACK;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    grid.dayIdxs.forEach(function (dayIdx, i) {
-      ctx.fillText(WEEKDAYS[dayIdx], gx + i * L.colW + L.colW / 2, gy - L.headerH / 2);
-    });
-
-    for (var hour = grid.startHour; hour <= grid.endHour; hour++) {
-      var y = gy + (hour - grid.startHour) * L.hourH;
-      ctx.strokeStyle = CANVAS_GRIDLINE;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(gx, y + 0.5);
-      ctx.lineTo(gx + gridW, y + 0.5);
-      ctx.stroke();
-
-      ctx.fillStyle = CANVAS_MUTED;
-      ctx.font = '11px ' + FONT_STACK;
-      ctx.textAlign = 'right';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(fmtHourLabel(hour), gx - 8, y);
-
-      if (hour < grid.endHour) {
-        ctx.save();
-        ctx.setLineDash([3, 4]);
-        ctx.beginPath();
-        ctx.moveTo(gx, y + L.hourH / 2 + 0.5);
-        ctx.lineTo(gx + gridW, y + L.hourH / 2 + 0.5);
-        ctx.stroke();
-        ctx.restore();
-      }
-    }
-
-    ctx.strokeStyle = CANVAS_GRIDLINE;
-    for (var d = 0; d <= grid.dayIdxs.length; d++) {
-      var x = gx + d * L.colW;
-      ctx.beginPath();
-      ctx.moveTo(x + 0.5, gy);
-      ctx.lineTo(x + 0.5, gy + gridH);
-      ctx.stroke();
-    }
-
-    if (!events.length) {
-      ctx.fillStyle = CANVAS_MUTED;
-      ctx.font = '13px ' + FONT_STACK;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('Add sections in step 2 to see your schedule here.', gx + gridW / 2, gy + gridH / 2);
-      return;
-    }
-
-    grid.dayIdxs.forEach(function (dayIdx, colIdx) {
-      var dayEvents = events.filter(function (ev) { return ev.dayIdx === dayIdx; });
-      if (!dayEvents.length) return;
-      assignOverlapSlices(dayEvents);
-
-      dayEvents.forEach(function (ev) {
-        var sliceW = (L.colW - 4) / ev._sliceCount;
-        var x = gx + colIdx * L.colW + 2 + ev._slice * sliceW + 1;
-        var w = sliceW - 2;
-        var y = gy + (ev.start - grid.startHour * 60) / 60 * L.hourH + 1;
-        var h = (ev.end - ev.start) / 60 * L.hourH - 2;
-
-        var fill = colorForSection(ev.sec);
-        roundRectPath(ctx, x, y, w, h, 6);
-        ctx.fillStyle = fill;
-        ctx.fill();
-
-        ctx.save();
-        roundRectPath(ctx, x, y, w, h, 6);
-        ctx.clip();
-        ctx.fillStyle = labelColorOn(fill);
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'alphabetic';
-
-        var innerX = x + 8;
-        var innerW = w - 16;
-        var cursorY = y + 7;
-        var lines = [
-          {
-            text: (ev.sec.code === ev.sec.name ? '' : ev.sec.code + ' · ') + ev.sec.section,
-            font: '700 12px ' + FONT_STACK, lh: 15
-          },
-          { text: ev.meeting.room, font: '11px ' + FONT_STACK, lh: 14 },
-          { text: ev.sec.teacher, font: '11px ' + FONT_STACK, lh: 14 },
-          { text: ev.sec.name, font: 'italic 10.5px ' + FONT_STACK, lh: 13 },
-          { text: fmtMinutes(ev.start) + '–' + fmtMinutes(ev.end), font: '10.5px ' + FONT_STACK, lh: 13 }
-        ];
-        lines.forEach(function (line) {
-          if (!line.text) return;
-          if (cursorY + line.lh > y + h - 4) return;
-          ctx.font = line.font;
-          ctx.fillText(ellipsize(ctx, line.text, innerW), innerX, cursorY + line.lh - 3);
-          cursorY += line.lh;
-        });
-        ctx.restore();
-      });
-    });
-  }
-
-  function renderCanvas() {
-    if (!state.sections.length) return;
-    var scale = Math.min(window.devicePixelRatio || 1, 2) * 1.25;
-    var ctx = canvas.getContext('2d');
-    renderTimetable(ctx, scale);
-
-  }
-
-  downloadBtn.addEventListener('click', function () {
-    var exportCanvas = document.createElement('canvas');
-    var ctx = exportCanvas.getContext('2d');
-    renderTimetable(ctx, 3);
-
-    exportCanvas.toBlob(function (blob) {
-      if (!blob) return;
-      var firstSec = state.selected.values().next().value;
-      var name = firstSec
-        ? 'timetable-' + firstSec.code.toLowerCase() + '.png'
-        : 'my-timetable.png';
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement('a');
-      a.href = url;
-      a.download = name;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
-    }, 'image/png');
+    if (tokens.length) group.open = true;
+    list.appendChild(group);
   });
 
-  function jumpToSearch(code) {
-    courseSearch.value = code;
-    renderSearchResults();
-    buildPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    courseSearch.focus({ preventScroll: true });
+  if (!shown) {
+    browseContent.appendChild(el('div', 'no-results', 'No section matches that filter.'));
+  } else {
+    browseContent.appendChild(list);
   }
+}
 
-  function matchesFilter(hay, tokens) {
-    if (!tokens.length) return true;
-    hay = hay.toLowerCase();
-    return tokens.every(function (t) { return hay.indexOf(t) !== -1; });
-  }
+function renderBrowse() {
+  if (!state.sections.length) return;
+  renderBrowseStats();
+  browseContent.textContent = '';
+  const tokens = browseFilter.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (state.browseView === 'teachers') renderBrowseTeachers(tokens);
+  else if (state.browseView === 'sections') renderBrowseSections(tokens);
+  else renderBrowseCourses(tokens);
+  updateBrowseAddStates();
+}
 
-  function teacherCatalog() {
-
-    var byTeacher = new Map();
-    state.sections.forEach(function (sec) {
-      var name = sec.teacher || 'TBA';
-      var entry = byTeacher.get(name);
-      if (!entry) {
-        entry = { name: name, courses: new Map(), sectionCount: 0 };
-        byTeacher.set(name, entry);
-      }
-      entry.sectionCount++;
-      var cKey = sec.code + '|' + sec.name;
-      var course = entry.courses.get(cKey);
-      if (!course) {
-        course = { code: sec.code, name: sec.name, sectionCount: 0 };
-        entry.courses.set(cKey, course);
-      }
-      course.sectionCount++;
-    });
-    var teachers = Array.from(byTeacher.values());
-    teachers.sort(function (a, b) {
-      if (a.name === 'TBA') return 1;
-      if (b.name === 'TBA') return -1;
-      return a.name.localeCompare(b.name);
-    });
-    return teachers;
-  }
-
-  function teacherInitials(name) {
-    var words = name.split(/\s+/).filter(Boolean);
-    var initials = words.slice(0, 2).map(function (w) { return w.charAt(0); }).join('');
-    return initials.toUpperCase() || '?';
-  }
-
-  function renderBrowseStats() {
-    browseStats.textContent = '';
-    var courseCount = courseGroups('').length;
-    var teacherCount = teacherCatalog().filter(function (t) { return t.name !== 'TBA'; }).length;
-    var stats = [
-      [courseCount, courseCount === 1 ? 'course' : 'courses'],
-      [teacherCount, teacherCount === 1 ? 'teacher' : 'teachers'],
-      [state.sections.length, state.sections.length === 1 ? 'section' : 'sections']
-    ];
-    stats.forEach(function (s) {
-      var chip = el('span', 'stat-chip');
-      chip.appendChild(el('strong', null, String(s[0])));
-      chip.appendChild(document.createTextNode(s[1]));
-      browseStats.appendChild(chip);
-    });
-  }
-
-  function sectionParts(label) {
-
-    var primary = String(label || '').split('/')[0].trim();
-    var m = /^(.*?)-?(\d+)\s*([A-Za-z]+)(\d+)?$/.exec(primary);
-    if (!m) return { base: primary || label, sub: null };
-    var base = (m[1] ? m[1] + '-' : '') + m[2] + m[3].toUpperCase();
-    return { base: base, sub: m[4] || null };
-  }
-
-  function sectionRow(sec, showCourse) {
-    var row = el('div', 'catalog-row');
-    row.dataset.key = sectionKey(sec);
-
-    var main = el('div', 'catalog-row-main');
-    var title = el('div', 'catalog-row-title');
-    if (showCourse) {
-      if (sec.code !== sec.name) title.appendChild(el('strong', null, sec.code));
-      title.appendChild(document.createTextNode(' ' + sec.name + ' '));
-    }
-    title.appendChild(el('span', 'catalog-row-section', sec.section));
-    main.appendChild(title);
-
-    var metaBits = [sec.teacher, sectionMeetingSummary(sec)].filter(Boolean);
-    if (metaBits.length) main.appendChild(el('div', 'catalog-row-meta', metaBits.join(' · ')));
-    row.appendChild(main);
-
-    var link = reviewLink(sec.teacher);
-    if (link) row.appendChild(link);
-
-    var add = el('button', 'catalog-add');
-    add.type = 'button';
-    add.addEventListener('click', function (ev) {
-      ev.stopPropagation();
-      toggleSection(sec);
-    });
-    row.appendChild(add);
-
-    return row;
-  }
-
-  function updateBrowseAddStates() {
-    browseContent.querySelectorAll('.catalog-row').forEach(function (row) {
-      var added = state.selected.has(row.dataset.key);
-      row.classList.toggle('added', added);
-      row.querySelector('.catalog-add').textContent = added ? 'Added' : 'Add';
-    });
-    var n = state.selected.size;
-    browseFootCount.textContent = n
-      ? n + (n === 1 ? ' section added' : ' sections added')
-      : 'Nothing added yet';
-  }
-
-  function renderBrowseCourses(tokens) {
-    var grid = el('div', 'course-grid');
-    var shown = 0;
-    courseGroups('').forEach(function (group) {
-      var teachers = [];
-      group.sections.forEach(function (sec) {
-        if (sec.teacher && teachers.indexOf(sec.teacher) === -1) teachers.push(sec.teacher);
-      });
-      var hay = group.code + ' ' + group.name + ' ' + teachers.join(' ') + ' ' +
-        group.sections.map(function (s) { return s.section; }).join(' ');
-      if (!matchesFilter(hay, tokens)) return;
-      shown++;
-
-      var card = el('details', 'course-card');
-      var summary = el('summary', 'course-card-summary');
-
-      var top = el('div', 'course-card-top');
-      top.appendChild(el('span', 'course-code', group.code));
-      if (/\blab\b/i.test(group.name)) top.appendChild(el('span', 'lab-tag', 'Lab'));
-      summary.appendChild(top);
-
-      summary.appendChild(el('div', 'course-name', group.name));
-
-      var n = group.sections.length;
-      var meta = n + (n === 1 ? ' section' : ' sections');
-      if (teachers.length) meta += ' · ' + teachers.join(', ');
-      summary.appendChild(el('div', 'course-meta', meta));
-      card.appendChild(summary);
-
-      var rows = el('div', 'catalog-rows');
-      group.sections.forEach(function (sec) { rows.appendChild(sectionRow(sec, false)); });
-      card.appendChild(rows);
-
-      if (tokens.length) card.open = true;
-      grid.appendChild(card);
-    });
-
-    if (!shown) {
-      browseContent.appendChild(el('div', 'no-results', 'Nothing in the catalog matches that filter.'));
-    } else {
-      browseContent.appendChild(grid);
-    }
-  }
-
-  function renderBrowseTeachers(tokens) {
-    var list = el('div', 'teacher-list');
-    var shown = 0;
-    teacherCatalog().forEach(function (teacher) {
-      var courses = Array.from(teacher.courses.values());
-      var hay = teacher.name + ' ' + courses.map(function (c) { return c.code + ' ' + c.name; }).join(' ');
-      if (!matchesFilter(hay, tokens)) return;
-      shown++;
-
-      var row = el('details', 'teacher-row');
-
-      var head = el('summary', 'teacher-head');
-      head.appendChild(el('span', 'teacher-avatar', teacherInitials(teacher.name)));
-      head.appendChild(el('span', 'teacher-name', teacher.name));
-      var nc = courses.length;
-      head.appendChild(el('span', 'teacher-load',
-        nc + (nc === 1 ? ' course' : ' courses') + ' · ' +
-        teacher.sectionCount + (teacher.sectionCount === 1 ? ' section' : ' sections')));
-      var link = reviewLink(teacher.name);
-      if (link) head.appendChild(link);
-      row.appendChild(head);
-
-      var rows = el('div', 'catalog-rows');
-      state.sections.forEach(function (sec) {
-        if ((sec.teacher || 'TBA') !== teacher.name) return;
-        rows.appendChild(sectionRow(sec, true));
-      });
-      row.appendChild(rows);
-
-      if (tokens.length) row.open = true;
-      list.appendChild(row);
-    });
-
-    if (!shown) {
-      browseContent.appendChild(el('div', 'no-results', 'No teacher matches that filter.'));
-    } else {
-      browseContent.appendChild(list);
-    }
-  }
-
-  function sectionCatalog() {
-
-    var bases = new Map();
-    state.sections.forEach(function (sec) {
-      var parts = sectionParts(sec.section);
-      var base = bases.get(parts.base);
-      if (!base) {
-        base = { label: parts.base, subs: new Map(), total: 0 };
-        bases.set(parts.base, base);
-      }
-      base.total++;
-      var sub = base.subs.get(sec.section);
-      if (!sub) {
-        sub = { label: sec.section, isSub: !!parts.sub, sections: [] };
-        base.subs.set(sec.section, sub);
-      }
-      sub.sections.push(sec);
-    });
-
-    var list = Array.from(bases.values());
-    list.sort(function (a, b) { return a.label.localeCompare(b.label, undefined, { numeric: true }); });
-    list.forEach(function (base) {
-      base.subList = Array.from(base.subs.values()).sort(function (a, b) {
-        return a.label.localeCompare(b.label, undefined, { numeric: true });
-      });
-    });
-    return list;
-  }
-
-  function renderBrowseSections(tokens) {
-    var list = el('div', 'section-list');
-    var shown = 0;
-
-    sectionCatalog().forEach(function (base) {
-      var courseText = [];
-      base.subList.forEach(function (sub) {
-        sub.sections.forEach(function (sec) {
-          courseText.push(sec.code + ' ' + sec.name + ' ' + (sec.teacher || ''));
-        });
-      });
-      var hay = base.label + ' ' + base.subList.map(function (s) { return s.label; }).join(' ') +
-        ' ' + courseText.join(' ');
-      if (!matchesFilter(hay, tokens)) return;
-      shown++;
-
-      var group = el('details', 'section-group');
-
-      var head = el('summary', 'section-head');
-      head.appendChild(el('span', 'section-label', base.label));
-      head.appendChild(el('span', 'section-load',
-        base.total + (base.total === 1 ? ' class' : ' classes')));
-
-      var subs = base.subList.filter(function (s) { return s.label !== base.label; });
-      if (subs.length) {
-        var tags = el('span', 'section-subs');
-        subs.forEach(function (sub) { tags.appendChild(el('span', 'sub-tag', sub.label)); });
-        head.appendChild(tags);
-      }
-      group.appendChild(head);
-
-      base.subList.forEach(function (sub) {
-        var block = el('div', 'sub-block');
-
-        var subHead = el('div', 'sub-head');
-        subHead.appendChild(el('span', 'sub-head-label', sub.label));
-        subHead.appendChild(el('span', 'sub-head-count',
-          sub.sections.length + (sub.sections.length === 1 ? ' class' : ' classes') +
-          (sub.isSub ? ' · sub-section' : '')));
-        block.appendChild(subHead);
-
-        var rows = el('div', 'catalog-rows');
-        sub.sections.forEach(function (sec) { rows.appendChild(sectionRow(sec, true)); });
-        block.appendChild(rows);
-
-        group.appendChild(block);
-      });
-
-      if (tokens.length) group.open = true;
-      list.appendChild(group);
-    });
-
-    if (!shown) {
-      browseContent.appendChild(el('div', 'no-results', 'No section matches that filter.'));
-    } else {
-      browseContent.appendChild(list);
-    }
-  }
-
-  function renderBrowse() {
-    if (!state.sections.length) return;
-    renderBrowseStats();
-    browseContent.textContent = '';
-    var tokens = browseFilter.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    if (state.browseView === 'teachers') renderBrowseTeachers(tokens);
-    else if (state.browseView === 'sections') renderBrowseSections(tokens);
-    else renderBrowseCourses(tokens);
-    updateBrowseAddStates();
-  }
-
-  function setBrowseView(view) {
-    state.browseView = view;
-    [[tabCourses, 'courses'], [tabTeachers, 'teachers'], [tabSections, 'sections']].forEach(function (pair) {
-      var isActive = view === pair[1];
-      pair[0].classList.toggle('active', isActive);
-      pair[0].setAttribute('aria-selected', isActive ? 'true' : 'false');
-    });
-    browseContent.scrollTop = 0;
-    renderBrowse();
-  }
-
-  tabCourses.addEventListener('click', function () { setBrowseView('courses'); });
-  tabTeachers.addEventListener('click', function () { setBrowseView('teachers'); });
-  tabSections.addEventListener('click', function () { setBrowseView('sections'); });
-
-  function openBrowse() {
-    if (!state.sections.length) return;
-    renderBrowse();
-    if (!browseModal.open) {
-      if (browseModal.showModal) browseModal.showModal();
-      else browseModal.setAttribute('open', '');
-    }
-    browseFilter.focus({ preventScroll: true });
-  }
-
-  function closeBrowse() {
-    if (browseModal.close) browseModal.close();
-    else browseModal.removeAttribute('open');
-  }
-
-  browseOpenBtn.addEventListener('click', openBrowse);
-  browseJump.addEventListener('click', openBrowse);
-  browseCloseBtn.addEventListener('click', closeBrowse);
-  browseDoneBtn.addEventListener('click', closeBrowse);
-
-  browseModal.addEventListener('click', function (ev) {
-
-    if (ev.target === browseModal) closeBrowse();
+function setBrowseView(view) {
+  state.browseView = view;
+  [[tabCourses, 'courses'], [tabTeachers, 'teachers'], [tabSections, 'sections']].forEach(([tab, name]) => {
+    const isActive = view === name;
+    tab.classList.toggle('active', isActive);
+    tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
   });
+  browseContent.scrollTop = 0;
+  renderBrowse();
+}
 
-  browseFilter.addEventListener('input', renderBrowse);
+tabCourses.addEventListener('click', () => setBrowseView('courses'));
+tabTeachers.addEventListener('click', () => setBrowseView('teachers'));
+tabSections.addEventListener('click', () => setBrowseView('sections'));
 
-  campusSelect.value = state.reviewCampus;
-  campusSelect.addEventListener('change', function () {
-    state.reviewCampus = campusSelect.value;
-    try {
-      window.localStorage.setItem(CAMPUS_STORAGE_KEY, state.reviewCampus);
-    } catch (e) {}
-
-    renderSearchResults();
-    renderSelectedList();
-    renderBrowse();
-  });
-
-  function renderAll() {
-    renderSelectedList();
-    updateResultRowStates();
-    updateBrowseAddStates();
-    renderConflicts(selectedEvents());
-    renderCanvas();
+function openBrowse() {
+  if (!state.sections.length) return;
+  renderBrowse();
+  if (!browseModal.open) {
+    if (browseModal.showModal) browseModal.showModal();
+    else browseModal.setAttribute('open', '');
   }
+  browseFilter.focus({ preventScroll: true });
+}
 
-  theoryMinInput.addEventListener('input', renderAll);
-  labMinInput.addEventListener('input', renderAll);
-})();
+function closeBrowse() {
+  if (browseModal.close) browseModal.close();
+  else browseModal.removeAttribute('open');
+}
+
+browseOpenBtn.addEventListener('click', openBrowse);
+browseJump.addEventListener('click', openBrowse);
+browseCloseBtn.addEventListener('click', closeBrowse);
+browseDoneBtn.addEventListener('click', closeBrowse);
+
+browseModal.addEventListener('click', (ev) => {
+  // A click on the backdrop lands on the <dialog> element itself.
+  if (ev.target === browseModal) closeBrowse();
+});
+
+browseFilter.addEventListener('input', renderBrowse);
+
+campusSelect.value = state.reviewCampus;
+campusSelect.addEventListener('change', () => {
+  state.reviewCampus = campusSelect.value;
+  storageSet(CAMPUS_STORAGE_KEY, state.reviewCampus);
+  // Review links embed the campus, so rebuild everything that shows them.
+  renderSearchResults();
+  renderSelectedList();
+  renderBrowse();
+});
+
+// ---------------------------------------------------------------------- start
+
+async function boot() {
+  const user = await requireUser();
+  if (!user) return; // redirecting to the login or pending page
+  state.user = user;
+  renderHeader(user);
+  page.hidden = false;
+  await loadTimetableList({ preselect: storageGet(TIMETABLE_STORAGE_KEY) });
+}
+
+boot();

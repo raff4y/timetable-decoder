@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex" />
+<meta name="theme-color" content="#0aa0cf" />
+<title>CMS · Timetable Decoder</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png" />
+<link rel="apple-touch-icon" href="/brand/favicon-180.png" />
+<link rel="stylesheet" href="/src/styles/brand.css" />
+<link rel="stylesheet" href="/src/styles/cms.css" />
+</head>
+<body class="cms-body">
+<a class="skip-link" href="#cms-main">Skip To Content</a>
+
+<div class="cms-boot" id="cms-boot" role="status" aria-live="polite">
+  <img src="/brand/ss-mark.png" alt="" width="48" height="32" />
+  <span>Loading The CMS…</span>
+</div>
+
+<div class="cms" id="cms" hidden>
+  <div class="ambient" aria-hidden="true">
+    <div class="dot-grid"></div>
+    <div class="orb orb--cyan"></div>
+    <div class="orb orb--blue"></div>
+  </div>
+
+  <!-- Mobile top bar -->
+  <header class="cms-topbar">
+    <button type="button" class="icon-btn" id="nav-open" aria-label="Open Menu" aria-controls="cms-sidebar" aria-expanded="false"></button>
+    <a class="lockup" href="#/"><img src="/brand/ss-mark.png" alt="" width="33" height="22" />Timetable Decoder</a>
+  </header>
+
+  <div class="cms-scrim" id="nav-scrim" hidden></div>
+
+  <aside class="cms-sidebar" id="cms-sidebar" aria-label="CMS Navigation">
+    <div class="sidebar-head">
+      <a class="lockup" href="#/"><img src="/brand/ss-mark.png" alt="" width="33" height="22" /><span>Timetable Decoder <small>CMS</small></span></a>
+      <button type="button" class="icon-btn sidebar-close" id="nav-close" aria-label="Close Menu"></button>
+    </div>
+    <nav class="sidebar-nav" id="sidebar-nav"></nav>
+    <div class="sidebar-foot">
+      <div class="me">
+        <span class="avatar" id="me-avatar" aria-hidden="true"></span>
+        <span class="me-text">
+          <strong id="me-name"></strong>
+          <span id="me-email"></span>
+        </span>
+      </div>
+      <div class="sidebar-links">
+        <a class="side-link" href="/app.html" id="open-app"></a>
+        <button type="button" class="side-link" id="signout-btn"></button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="cms-main" id="cms-main" tabindex="-1">
+    <div class="cms-view" id="cms-view"></div>
+    <footer class="cms-footer">A Product By <span class="wordmark">System<span>Solutions</span></span> · <span class="slogan">Your Infinity Of Answers</span></footer>
+  </main>
+</div>
+
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
+<script type="module" src="/src/cms/main.js"></script>
+</body>
+</html>
