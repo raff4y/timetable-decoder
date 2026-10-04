@@ -6,6 +6,10 @@
 // the timetable tool's login (server/rooms/auth.js).
 
 import { WEEKDAYS, fmtMinutes } from '../../../server/parser/time.js';
+import {
+  FREE_SLOT_CUTOFF, TEACHING_DAYS, buildFreeSlots, clock24, daysForScope, formatText, teachingWindow
+} from '../free-slots.js';
+import { renderFreeSlotsPng } from '../free-png.js';
 import { LOGIN_PATH, changePassword, loadRoomData, requireAccount, signOut } from '../client.js';
 
 (function () {
@@ -33,6 +37,7 @@ import { LOGIN_PATH, changePassword, loadRoomData, requireAccount, signOut } fro
   var deptRow = $('dept-row');
   var groupRow = $('group-row');
   var showBusy = $('show-busy');
+  var showLate = $('show-late');
 
   var resultPanel = $('result-panel');
   var tabNow = $('tab-now');
@@ -68,6 +73,26 @@ import { LOGIN_PATH, changePassword, loadRoomData, requireAccount, signOut } fro
   var roomModalBody = $('room-modal-body');
   var roomClose = $('room-close');
 
+  var exportOpen = $('export-open');
+  var exportModal = $('export-modal');
+  var exportClose = $('export-close');
+  var exportRoom = $('export-room');
+  var exportRoomList = $('export-room-list');
+  var exportScope = $('export-scope');
+  var exportDayField = $('export-day-field');
+  var exportDay = $('export-day');
+  var exportDaysField = $('export-days-field');
+  var exportDays = $('export-days');
+  var exportFrom = $('export-from');
+  var exportTo = $('export-to');
+  var exportGap = $('export-gap');
+  var exportStatus = $('export-status');
+  var exportPreview = $('export-preview');
+  var exportCopy = $('export-copy');
+  var exportPng = $('export-png');
+  var exportCopyImage = $('export-copy-image');
+  var exportImage = $('export-image');
+
   var accountBar = $('account-bar');
   var accountName = $('account-name');
   var signoutBtn = $('signout-btn');
@@ -95,11 +120,16 @@ import { LOGIN_PATH, changePassword, loadRoomData, requireAccount, signOut } fro
     groupBy: 'building',
     minFree: 0,
     query: '',
-    lastFocus: null
+    lastFocus: null,
+    exportScope: 'day',
+    exportDaySet: new Set(),
+    exportReport: null
   };
 
   var DAY_END = 22 * 60;
   var DAY_START = 7 * 60;
+  // Rooms are closed after this; the "show late times" tick box lifts the cut-off.
+  var CLOSE_AT = 17 * 60 + 30;
 
   var MIN_PASSWORD = 8;
 
@@ -338,12 +368,16 @@ import { LOGIN_PATH, changePassword, loadRoomData, requireAccount, signOut } fro
 
   // How long this room stays free from `minute` on - capped at the end of the
   // teaching day so "free forever" reads as a number, not Infinity.
+  function dayEnd() {
+    return showLate.checked ? DAY_END : CLOSE_AT;
+  }
+
   function freeUntil(room, dayIdx, minute) {
-    var next = null;
+    var next = null, limit = dayEnd();
     bookingsOn(room, dayIdx).forEach(function (b) {
-      if (b.startMin >= minute && (next === null || b.startMin < next.startMin)) next = b;
+      if (b.startMin >= minute && b.startMin < limit && (next === null || b.startMin < next.startMin)) next = b;
     });
-    if (!next) return { until: null, minutes: Math.max(0, DAY_END - minute), nextClass: null };
+    if (!next) return { until: null, minutes: Math.max(0, limit - minute), nextClass: null };
     return { until: next.startMin, minutes: next.startMin - minute, nextClass: next };
   }
 
@@ -494,10 +528,25 @@ import { LOGIN_PATH, changePassword, loadRoomData, requireAccount, signOut } fro
     });
   }
 
+  function isClosedAt(minute) {
+    return !showLate.checked && minute >= CLOSE_AT;
+  }
+
+  function renderClosed(dayIdx, minute) {
+    freeList.textContent = '';
+    renderBusy([]);
+    resultSummary.textContent = 'Closed on ' + WEEKDAYS[dayIdx] + ' at ' + fmtMinutes(minute) +
+      ' - rooms close at ' + fmtMinutes(CLOSE_AT) + '.';
+    freeEmpty.textContent = 'Classes are closed after ' + fmtMinutes(CLOSE_AT) +
+      '. Tick "Show times after ' + fmtMinutes(CLOSE_AT) + '" to see room availability for later times anyway.';
+    freeEmpty.hidden = false;
+  }
+
   function renderNow() {
     var when = currentWhen();
     var dayIdx = when.dayIdx;
     var minute = when.minute;
+    if (isClosedAt(minute)) return renderClosed(dayIdx, minute);
 
     var rooms = visibleRooms();
     var free = [], busy = [];
@@ -550,6 +599,7 @@ import { LOGIN_PATH, changePassword, loadRoomData, requireAccount, signOut } fro
 
     slotEcho.textContent = WEEKDAYS[dayIdx] + ', ' + fmtMinutes(startMin) + ' - ' + fmtMinutes(endMin) +
       ' (' + fmtSpan(dur) + ')';
+    if (isClosedAt(startMin)) return renderClosed(dayIdx, startMin);
 
     var rooms = visibleRooms();
     var free = [], busy = [];
@@ -722,6 +772,9 @@ import { LOGIN_PATH, changePassword, loadRoomData, requireAccount, signOut } fro
     covNote.textContent = notes.join(' ');
     estimatesBox.hidden = !estimated;
 
+    exportOpen.disabled = !state.rooms.length;
+    exportOpen.title = state.rooms.length ? '' : 'No rooms loaded yet';
+
     clashOpen.disabled = !state.clashes.length;
     clashOpen.title = state.clashes.length ? '' : 'No double-booked rooms found';
     clashCount.hidden = !state.clashes.length;
@@ -770,7 +823,7 @@ import { LOGIN_PATH, changePassword, loadRoomData, requireAccount, signOut } fro
   }
 
   function fillDaySelects() {
-    [nowDay, slotDay].forEach(function (sel) {
+    [nowDay, slotDay, exportDay].forEach(function (sel) {
       sel.textContent = '';
       for (var i = 0; i < 6; i++) {
         var opt = document.createElement('option');
@@ -783,6 +836,7 @@ import { LOGIN_PATH, changePassword, loadRoomData, requireAccount, signOut } fro
     var pick = String(today > 5 ? 0 : today);
     nowDay.value = pick;
     slotDay.value = pick;
+    exportDay.value = pick;
     nowTime.value = minutesToTimeInput(Math.min(Math.max(currentWhen().minute, DAY_START), DAY_END));
   }
 
@@ -874,6 +928,14 @@ import { LOGIN_PATH, changePassword, loadRoomData, requireAccount, signOut } fro
       (room.isLab ? 'Lab' : 'Classroom') + ' · ' + room.whereLabel + ' · booked by ' +
       sources.map(function (f) { return f.label; }).join(', ')));
 
+    var exportBtn = el('button', 'btn btn-sm', 'Export free slots');
+    exportBtn.type = 'button';
+    exportBtn.addEventListener('click', function () {
+      closeModal(roomModal);
+      openExport(room.key, when.dayIdx);
+    });
+    roomModalBody.appendChild(exportBtn);
+
     for (var d = 0; d < 6; d++) {
       var day = bookingsOn(room, d);
       var wrap = el('div', 'day-block' + (d === when.dayIdx ? ' is-today' : ''));
@@ -935,7 +997,192 @@ import { LOGIN_PATH, changePassword, loadRoomData, requireAccount, signOut } fro
     });
   }
 
+  /* ---------------------------------------------------------- slot export */
+
+  // Find the room typed into the box: a datalist pick is the exact label, but
+  // "d6" / "D 6" should work too, so fall back to the key with punctuation ignored.
+  function exportRoomFromInput() {
+    var typed = exportRoom.value.trim();
+    if (!typed) return null;
+    var byLabel = state.rooms.filter(function (r) { return r.label.toLowerCase() === typed.toLowerCase(); })[0];
+    if (byLabel) return byLabel;
+    var bare = function (s) { return String(s).replace(/[^A-Z0-9]/gi, '').toUpperCase(); };
+    var want = bare(typed);
+    return state.rooms.filter(function (r) { return bare(r.key) === want; })[0] || null;
+  }
+
+  function refreshExportDays() {
+    exportDays.textContent = '';
+    for (var i = 0; i < TEACHING_DAYS; i++) {
+      var on = state.exportDaySet.has(i);
+      var b = el('button', 'chip' + (on ? ' is-on' : ''), WEEKDAYS[i]);
+      b.type = 'button';
+      b.setAttribute('data-xday', String(i));
+      b.setAttribute('aria-pressed', String(on));
+      exportDays.appendChild(b);
+    }
+  }
+
+  function setExportStatus(message, kind) {
+    exportStatus.textContent = message;
+    exportStatus.className = 'status-line' + (kind ? ' ' + kind : '');
+  }
+
+  function renderExport() {
+    var scope = state.exportScope;
+    exportDayField.hidden = scope !== 'day';
+    exportDaysField.hidden = scope !== 'days';
+    Array.prototype.forEach.call(exportScope.children, function (c) {
+      c.classList.toggle('is-on', c.getAttribute('data-scope') === scope);
+    });
+
+    state.exportReport = null;
+    exportPreview.value = '';
+    exportImage.removeAttribute('src');
+    exportImage.parentNode.hidden = true;
+    [exportCopy, exportPng, exportCopyImage].forEach(function (b) { b.disabled = true; });
+
+    var room = exportRoomFromInput();
+    if (!room) {
+      var typed = exportRoom.value.trim();
+      setExportStatus(typed ? 'No room matches that - pick one from the list.' : 'Choose a room to see its free slots.',
+        typed ? 'error' : '');
+      return;
+    }
+    var days = daysForScope(scope, { day: parseInt(exportDay.value, 10) || 0, days: Array.from(state.exportDaySet) });
+    if (!days.length) { setExportStatus('Pick at least one day.', ''); return; }
+
+    var from = timeInputToMinutes(exportFrom.value);
+    var to = timeInputToMinutes(exportTo.value);
+    if (from === null || to === null || Math.min(to, FREE_SLOT_CUTOFF) <= from) {
+      setExportStatus(from !== null && from >= FREE_SLOT_CUTOFF
+        ? 'Free slots stop at ' + fmtMinutes(FREE_SLOT_CUTOFF) + ', so the start time must be earlier.'
+        : 'The end time must be after the start time.', 'error');
+      return;
+    }
+    var minGap = Math.max(0, parseInt(exportGap.value, 10) || 0);
+
+    var result = buildFreeSlots(room.bookings, { days: days, from: from, to: to, minGap: minGap });
+    // result.to is the end time after the 5:30 pm cap.
+    var meta = { roomLabel: room.label, where: room.whereLabel, result: result, from: result.from, to: result.to, minGap: minGap };
+    var canvas = renderFreeSlotsPng(meta);
+    state.exportReport = { room: room, text: formatText(meta), canvas: canvas };
+    exportPreview.value = state.exportReport.text;
+    exportImage.src = canvas.toDataURL('image/png');
+    exportImage.parentNode.hidden = false;
+    [exportCopy, exportPng, exportCopyImage].forEach(function (b) { b.disabled = false; });
+
+    var total = result.days.reduce(function (n, d) { return n + d.slots.length; }, 0);
+    setExportStatus(total + ' free slot' + (total === 1 ? '' : 's') + ' across ' + days.length + ' day' +
+      (days.length === 1 ? '' : 's') + (to > FREE_SLOT_CUTOFF ? ' (nothing after ' + fmtMinutes(FREE_SLOT_CUTOFF) + ').' : '.'),
+      total ? 'success' : '');
+  }
+
+  // roomKey pre-fills the room (from a room's detail view); without one the
+  // person types or picks it. dayIdx seeds the "specific day" choice.
+  function openExport(roomKey, dayIdx) {
+    if (!state.rooms.length) return;
+    exportRoomList.textContent = '';
+    state.rooms.forEach(function (r) {
+      var opt = document.createElement('option');
+      opt.value = r.label;
+      exportRoomList.appendChild(opt);
+    });
+    var win = teachingWindow(state.rooms, DAY_START, DAY_END);
+    exportFrom.value = clock24(win.from);
+    exportTo.value = clock24(win.to);
+    exportTo.max = clock24(FREE_SLOT_CUTOFF);
+
+    var picked = roomKey ? state.roomByKey.get(roomKey) : null;
+    exportRoom.value = picked ? picked.label : '';
+    if (typeof dayIdx === 'number' && dayIdx < TEACHING_DAYS) exportDay.value = String(dayIdx);
+    state.exportScope = 'day';
+    state.exportDaySet = new Set([parseInt(exportDay.value, 10) || 0]);
+    refreshExportDays();
+    renderExport();
+    openModal(exportModal);
+    if (!picked) exportRoom.focus();
+  }
+
+  function downloadBlob(name, blob) {
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
+  function canvasBlob(canvas) {
+    return new Promise(function (resolve, reject) {
+      canvas.toBlob(function (blob) { if (blob) resolve(blob); else reject(new Error('no image')); }, 'image/png');
+    });
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+    return new Promise(function (resolve, reject) {
+      exportPreview.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+      if (ok) resolve(); else reject(new Error('copy failed'));
+    });
+  }
+
   /* ---------------------------------------------------------------- events */
+
+  exportOpen.addEventListener('click', function () { openExport(null); });
+  exportClose.addEventListener('click', function () { closeModal(exportModal); });
+  document.querySelector('[data-close-export]').addEventListener('click', function () { closeModal(exportModal); });
+
+  exportScope.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-scope]');
+    if (!btn) return;
+    state.exportScope = btn.getAttribute('data-scope');
+    renderExport();
+  });
+  exportDays.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-xday]');
+    if (!btn) return;
+    var i = parseInt(btn.getAttribute('data-xday'), 10);
+    if (state.exportDaySet.has(i)) state.exportDaySet.delete(i); else state.exportDaySet.add(i);
+    refreshExportDays();
+    renderExport();
+  });
+  [exportRoom, exportFrom, exportTo, exportGap].forEach(function (input) {
+    input.addEventListener('input', renderExport);
+  });
+  exportDay.addEventListener('change', renderExport);
+
+  exportCopy.addEventListener('click', function () {
+    if (!state.exportReport) return;
+    copyText(state.exportReport.text).then(
+      function () { setExportStatus('Copied to the clipboard.', 'success'); },
+      function () { setExportStatus('Could not copy - select the text and copy it by hand.', 'error'); }
+    );
+  });
+  exportPng.addEventListener('click', function () {
+    var report = state.exportReport;
+    if (!report) return;
+    canvasBlob(report.canvas).then(
+      function (blob) { downloadBlob('free-slots-' + report.room.key.toLowerCase() + '.png', blob); },
+      function () { setExportStatus('Could not create the image.', 'error'); }
+    );
+  });
+  exportCopyImage.addEventListener('click', function () {
+    var report = state.exportReport;
+    if (!report) return;
+    if (!(navigator.clipboard && window.ClipboardItem && window.isSecureContext)) {
+      setExportStatus('This browser cannot copy images - use Download PNG instead.', 'error');
+      return;
+    }
+    navigator.clipboard.write([new ClipboardItem({ 'image/png': canvasBlob(report.canvas) })]).then(
+      function () { setExportStatus('Image copied to the clipboard.', 'success'); },
+      function () { setExportStatus('Could not copy the image - use Download PNG instead.', 'error'); }
+    );
+  });
 
   [theoryMinInput, labMinInput].forEach(function (input) {
     input.addEventListener('change', function () { rebuildIndex(); renderAll(); });
@@ -1003,6 +1250,7 @@ import { LOGIN_PATH, changePassword, loadRoomData, requireAccount, signOut } fro
   });
 
   showBusy.addEventListener('change', renderResults);
+  showLate.addEventListener('change', renderResults);
 
   function setMode(mode) {
     state.mode = mode;
@@ -1047,7 +1295,8 @@ import { LOGIN_PATH, changePassword, loadRoomData, requireAccount, signOut } fro
   document.querySelector('[data-close-room]').addEventListener('click', function () { closeModal(roomModal); });
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
-    if (!roomModal.hidden) closeModal(roomModal);
+    if (!exportModal.hidden) closeModal(exportModal);
+    else if (!roomModal.hidden) closeModal(roomModal);
     else if (!clashModal.hidden) closeModal(clashModal);
     else if (!passwordModal.hidden) closeModal(passwordModal);
   });

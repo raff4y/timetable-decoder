@@ -165,8 +165,10 @@ function reviewLink(teacher, label) {
 // ------------------------------------------------------------------- header
 
 function renderHeader(user) {
-  userName.textContent = user.displayName || user.email;
+  const who = user.displayName || user.email;
+  userName.textContent = who;
   userName.title = user.email;
+  $('user-avatar').textContent = (who.trim()[0] || '?').toUpperCase();
   adminLink.hidden = user.role !== 'admin';
 }
 
@@ -364,9 +366,7 @@ async function selectTimetable(id, { scroll }) {
     ? 'This timetable lists the exact length of every class, so no estimates are needed - these inputs are disabled.'
     : defaultAdvancedHint;
 
-  browseJumpLabel.textContent = '';
-  browseJumpLabel.append('Not sure what’s on offer? ');
-  browseJumpLabel.appendChild(el('strong', null, 'Browse all ' + courseCount + ' courses'));
+  browseJumpLabel.textContent = 'Browse all ' + courseCount + ' courses';
 
   buildPanel.hidden = false;
   imagePanel.hidden = false;

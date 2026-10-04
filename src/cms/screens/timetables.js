@@ -31,7 +31,7 @@ export async function render(ctx) {
     dropSub,
   );
   const targetHost = h('div', { class: 'upload-target' });
-  const uploadCard = card({ title: 'Upload', body: [targetHost, drop, status, warnings] });
+  const uploadCard = card({ title: 'Upload', className: 'upload-card', body: [targetHost, drop, status, warnings] });
   const listHost = h('div');
 
   ctx.view.append(
@@ -41,7 +41,6 @@ export async function render(ctx) {
       description: 'Upload each department’s official Excel export, or a new version over an existing one. It’s parsed on the server; new timetables stay a draft until you publish them to students.',
     }),
     uploadCard,
-    h('div', { style: 'height:16px' }),
     listHost,
   );
   listHost.append(skeleton(280));

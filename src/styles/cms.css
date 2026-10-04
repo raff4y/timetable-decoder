@@ -138,11 +138,11 @@
   position: relative; z-index: 1;
   margin-left: var(--sidebar-w); min-height: 100vh;
   display: flex; flex-direction: column;
-  padding: 28px clamp(16px, 3vw, 40px) 0;
+  padding: 20px clamp(14px, 2.4vw, 32px) 0;
 }
 .cms-main:focus { outline: none; box-shadow: none; }
-.cms-view { flex: 1; width: 100%; max-width: 1240px; margin: 0 auto; }
-.cms-footer { padding: 40px 0 28px; text-align: center; font-size: 12.5px; color: var(--muted); }
+.cms-view { flex: 1; width: 100%; max-width: 1560px; margin: 0 auto; }
+.cms-footer { padding: 20px 0 16px; text-align: center; font-size: 12.5px; color: var(--muted); }
 
 @media (max-width: 1023px) {
   .cms-topbar { display: flex; }
@@ -504,3 +504,38 @@ dialog.modal::backdrop { background: rgba(11, 42, 61, 0.38); -webkit-backdrop-fi
   .stat-value { font-size: 26px; }
   .list li { padding-inline: 14px; flex-wrap: wrap; }
 }
+
+/* ---------- No dead space inside cards ----------
+   Cards that share a grid row are stretched to one height, and their content
+   spreads to fill it (rows share the height, bars and key/value lists space
+   out) instead of leaving a blank strip at the bottom. */
+
+.grid { align-items: stretch; }
+.grid > .card { display: flex; flex-direction: column; }
+.grid > .card > .card-body { flex: 1; display: flex; flex-direction: column; }
+.grid > .card > .card-body > .bars { flex: 1; justify-content: space-between; }
+.grid > .card > .card-body > .kv { flex: 1; align-content: space-between; }
+.grid > .card > .card-body > .chart { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; }
+.grid > .card > .card-body--flush { padding-bottom: 0; }
+.grid > .card > .card-body--flush > .list,
+.grid > .card > .card-body--flush > .table-wrap { flex: 1; display: flex; flex-direction: column; }
+.grid > .card > .card-body--flush > .list > li { flex: 1; }
+.card-head + .card-body--flush { padding-top: 6px; }
+
+.upload-card .card-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.upload-card .upload-target { max-width: none; margin: 0; }
+.upload-card .dropzone { height: 100%; }
+.upload-card .upload-status, .upload-card .upload-status + div { grid-column: 1 / -1; margin: 0; }
+.upload-card .upload-status:empty, .upload-card .upload-status + div:empty { display: none; }
+@media (min-width: 900px) {
+  .upload-card .card-body { grid-template-columns: minmax(280px, 4fr) minmax(0, 7fr); align-items: stretch; }
+}
+
+/* A sparse screen (one account, one timetable) still fills the viewport: the
+   closing card (directly, or inside its host div) grows to the bottom instead
+   of floating over blank page. */
+.cms-view { display: flex; flex-direction: column; }
+.cms-view > :last-child:not(.grid):not(.page-head):not(.filters) { flex: 1; display: flex; flex-direction: column; }
+.cms-view > :last-child > .card:last-child { flex: 1; display: flex; flex-direction: column; }
+.cms-view > :last-child > .card:last-child > .card-body { flex: 1; }
+.cms-view > .card:last-child > .card-body { flex: 1; }

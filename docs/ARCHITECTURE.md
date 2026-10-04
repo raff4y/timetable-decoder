@@ -327,6 +327,17 @@ the admin API), `rooms/index.html` + `src/rooms/pages/app.js` (the finder),
 `rooms/login.html` + `src/rooms/pages/login.js`, `src/rooms/client.js`
 (browser client; does not use `src/auth-client.js`), `src/rooms/rooms.css`.
 
+### Free-slot export
+
+"Export free slots" (header button, or from any room's detail view) takes one room,
+asks for the days (a specific day, the whole week Mon-Sat, or a set of days), a time
+window (defaults to the earliest/latest class in the published timetables) and a
+minimum gap, then shows the room's free slots as a PNG (one column per day, free time in
+green) with Download PNG / Copy image / Copy as text. No free slot ever runs past 5:30 pm
+(`FREE_SLOT_CUTOFF`). It is client-side only: the pure logic is `src/rooms/free-slots.js`
+(tests: `tests/rooms-free-slots.test.js`), the drawing is `src/rooms/free-png.js`, the UI is in
+`src/rooms/pages/app.js`. No API change.
+
 ### Managing accounts
 
 ```

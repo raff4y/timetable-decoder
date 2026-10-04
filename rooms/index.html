@@ -15,7 +15,7 @@
   <header class="site-header">
     <div class="header-bar">
       <div class="brand">
-        <span class="brand-mark" aria-hidden="true">🚪</span>
+        <span class="brand-mark" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 20.5V4.5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v16"/><path d="M3 20.5h18"/><path d="M16 7.5h2.5a1 1 0 0 1 1 1v12"/><path d="M12.5 12.5h.01"/></svg></span>
         <div>
           <h1>Free Room Finder</h1>
           <p class="tagline">Which rooms are empty right now - and which are free for the slot you need.</p>
@@ -23,9 +23,13 @@
       </div>
       <div class="header-actions">
         <button type="button" class="btn btn-nav" id="clash-open" disabled title="Loading timetables...">
-          <span aria-hidden="true">⚠️</span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4 2.8 19.5h18.4Z"/><path d="M12 10v4"/><path d="M12 17h.01"/></svg>
           <span>Room clashes</span>
           <span class="pill pill-count" id="clash-count" hidden>0</span>
+        </button>
+        <button type="button" class="btn btn-nav" id="export-open" disabled title="Loading timetables...">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4"/><path d="m7 9 5-5 5 5"/><path d="M4 19.5h16"/></svg>
+          <span>Export free slots</span>
         </button>
         <div class="account-bar" id="account-bar" hidden>
           <span class="account-name" id="account-name"></span>
@@ -146,6 +150,11 @@
           <button type="button" class="tab" id="tab-slot" role="tab" aria-selected="false">Free for a slot</button>
         </div>
 
+        <label class="check late-check">
+          <input type="checkbox" id="show-late" />
+          <span>Show times after 5:30 pm (rooms are closed by default)</span>
+        </label>
+
         <div class="query-box" id="query-now">
           <div class="now-line">
             <span class="now-clock" id="now-clock">--</span>
@@ -230,6 +239,68 @@
       <button type="button" class="btn btn-quiet btn-sm" id="room-close">Close</button>
     </div>
     <div class="modal-body" id="room-modal-body"></div>
+  </div>
+</div>
+
+<div class="modal" id="export-modal" hidden>
+  <div class="modal-scrim" data-close-export></div>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="export-modal-title">
+    <div class="modal-head">
+      <h2 id="export-modal-title">Export free slots</h2>
+      <button type="button" class="btn btn-quiet btn-sm" id="export-close">Close</button>
+    </div>
+    <div class="modal-body">
+      <label class="field">
+        <span class="field-label">Room</span>
+        <input type="text" id="export-room" list="export-room-list" placeholder="Type or pick a room, e.g. D-6" autocomplete="off" spellcheck="false" />
+        <datalist id="export-room-list"></datalist>
+      </label>
+
+      <div class="field">
+        <span class="field-label">Which days?</span>
+        <div class="chip-row" id="export-scope" role="group" aria-label="Which days">
+          <button type="button" class="chip is-on" data-scope="day">A specific day</button>
+          <button type="button" class="chip" data-scope="week">Whole week</button>
+          <button type="button" class="chip" data-scope="days">A set of days</button>
+        </div>
+      </div>
+
+      <label class="field" id="export-day-field">
+        <span class="field-label">Day</span>
+        <select id="export-day"></select>
+      </label>
+
+      <div class="field" id="export-days-field" hidden>
+        <span class="field-label">Pick the days</span>
+        <div class="chip-row" id="export-days" role="group" aria-label="Days"></div>
+      </div>
+
+      <div class="query-grid">
+        <label class="field">
+          <span class="field-label">From</span>
+          <input type="time" id="export-from" />
+        </label>
+        <label class="field">
+          <span class="field-label">To</span>
+          <input type="time" id="export-to" />
+        </label>
+        <label class="field">
+          <span class="field-label">Skip gaps under</span>
+          <input type="number" id="export-gap" min="0" max="300" step="5" value="30" />
+        </label>
+      </div>
+      <p class="field-note">The window starts at the earliest class and ends at the latest class in any published timetable. Gaps shorter than the minimum (in minutes) are left out.</p>
+
+      <p class="status-line" id="export-status" role="status" aria-live="polite"></p>
+      <div class="export-image"><img id="export-image" alt="Free slots preview" /></div>
+
+      <div class="export-actions">
+        <button type="button" class="btn btn-primary" id="export-png">Download PNG</button>
+        <button type="button" class="btn" id="export-copy-image">Copy image</button>
+        <button type="button" class="btn" id="export-copy">Copy as text</button>
+      </div>
+      <textarea id="export-preview" class="export-preview" readonly rows="1" tabindex="-1" aria-hidden="true"></textarea>
+    </div>
   </div>
 </div>
 
